@@ -11,7 +11,9 @@ homepage in `public/`.
 | `subduction_object_storage/` | A Rust crate: Subduction's `Storage` (and keyhive's `KeyhiveStorage`) over an object store. Standalone, builds against the published subduction crates. See its README. |
 | `subduction.patch` | Changes to upstream's `subduction_cli` server, against the commit pinned in the `Dockerfile`. |
 | `public/` | The homepage. |
-| `Dockerfile`, `start.sh` | Fetch upstream at the pinned commit, add the crate, apply the patch, build, run. |
+| `subduction.rev` | The upstream commit the patch is made against. It is the last one before upstream moved to `keyhive_core` 0.6, which current JS keyhive clients (`@keyhive/keyhive` 0.1.0-alpha.8) can't talk to yet. |
+| `.github/workflows/image.yml`, `Dockerfile.runtime` | On every push to `subduction`: build the server once and publish `ghcr.io/chee/galaxy.observer`. Deploys pull that image. |
+| `Dockerfile`, `start.sh` | The same build from source in one Dockerfile, and the start script both images run. |
 
 The patch gives the server:
 
@@ -21,6 +23,8 @@ The patch gives the server:
   `/contact-card`): the server's keyhive contact
   card.
 - `--static-dir <DIR>`: serve files to plain `GET` requests on the sync port.
+  Each plain request gets its own connection, so a client's later WebSocket
+  upgrade never lands on a page connection.
 
 ## Configuration
 
@@ -39,7 +43,7 @@ With a bucket and `SUBDUCTION_KEY_SEED` the server needs no volume.
 
 ```sh
 git clone https://github.com/inkandswitch/subduction && cd subduction
-git checkout 2566cbfc5d1d529ed8c109009a645ee73d7dc0dd
+git checkout "$(cat /path/to/galaxy.observer/subduction.rev)"
 ln -s /path/to/galaxy.observer/subduction_object_storage .
 git apply /path/to/galaxy.observer/subduction.patch
 cargo test -p subduction_cli -p subduction_object_storage

@@ -1,0 +1,10 @@
+# The image the `image` workflow publishes: the binary it built, the homepage
+# and the start script. The base matches the workflow's runner (glibc).
+FROM ubuntu:24.04
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends ca-certificates libssl3 \
+	&& rm -rf /var/lib/apt/lists/*
+COPY subduction_cli /usr/local/bin/subduction_cli
+COPY public /srv/public
+COPY start.sh /usr/local/bin/start.sh
+CMD ["/usr/local/bin/start.sh"]

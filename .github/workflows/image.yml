@@ -1,0 +1,86 @@
+# Build the server once and publish it as an image, so deploys pull instead
+# of compiling.
+name: image
+
+on:
+  push:
+    branches: [subduction]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch subduction at the pinned commit
+        run: |
+          rev=$(cat subduction.rev)
+          git init -q subduction
+          git -C subduction remote add origin https://github.com/inkandswitch/subduction
+          git -C subduction fetch -q --depth 1 origin "$rev"
+          git -C subduction checkout -q FETCH_HEAD
+          cp -R subduction_object_storage subduction/
+          git -C subduction apply ../subduction.patch
+
+      - uses: dtolnay/rust-toolchain@1.91.0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: subduction
+
+      - name: Build
+        working-directory: subduction
+        run: cargo build --release --locked -p subduction_cli
+
+      - name: Test
+        working-directory: subduction
+        run: cargo test --release --locked -p subduction_object_storage --all-features
+
+      - name: Assemble the image context
+        run: |
+          mkdir image
+          cp subduction/target/release/subduction_cli start.sh image/
+          cp -R public image/
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: image
+          file: Dockerfile.runtime
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+
+  # Railway does not redeploy when an image tag moves. With a Railway project
+  # token in the RAILWAY_TOKEN secret, tell each service to pull the new image.
+  deploy:
+    needs: image
+    runs-on: ubuntu-24.04
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    steps:
+      - name: Redeploy the services
+        if: env.RAILWAY_TOKEN != ''
+        run: |
+          npm install --global @railway/cli
+          for service in galaxy subduction; do
+            railway redeploy --service "$service" --yes
+          done
