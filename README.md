@@ -17,7 +17,8 @@ The patch gives the server:
 
 - `--object-store <URL>` (or `SUBDUCTION_OBJECT_STORE`): keep sedimentree and
   keyhive data in a bucket. Without it the server uses redb on local disk.
-- `GET /.well-known/keyhive/contact-card.json`: the server's keyhive contact
+- `GET /.well-known/keyhive/contact-card.json` (also `/contact-card.json` and
+  `/contact-card`): the server's keyhive contact
   card.
 - `--static-dir <DIR>`: serve files to plain `GET` requests on the sync port.
 
