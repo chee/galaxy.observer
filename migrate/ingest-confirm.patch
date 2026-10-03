@@ -1,0 +1,34 @@
+diff --git a/automerge_subduction_ingest/src/main.rs b/automerge_subduction_ingest/src/main.rs
+index 62fdb3c..6fb0daa 100644
+--- a/automerge_subduction_ingest/src/main.rs
++++ b/automerge_subduction_ingest/src/main.rs
+@@ -387,6 +387,29 @@ async fn main() -> Result<()> {
+     .await
+     .map_err(|_| eyre!("sync timed out after {}s", args.timeout))??;
+ 
++    // The upload's data path is fire-and-forget: commits the server asked for
++    // can still be on their way when `add_sedimentree` returns, and exiting
++    // now drops them. Sync until a round sends nothing, which means the
++    // server holds everything. The server counts a commit as held only once
++    // its write finishes, so back off between rounds.
++    let mut wait = std::time::Duration::from_millis(100);
++    let mut confirmed = false;
++    for _ in 0..12 {
++        let (_, stats, _) = subduction
++            .sync_with_peer(&server_peer_id, sed_id, false, CallTimeout::Uncapped)
++            .await
++            .map_err(|e| eyre!("confirming sync failed: {e}"))?;
++        if stats.commits_sent == 0 && stats.fragments_sent == 0 {
++            confirmed = true;
++            break;
++        }
++        tokio::time::sleep(wait).await;
++        wait = (wait * 2).min(std::time::Duration::from_secs(5));
++    }
++    if !confirmed {
++        return Err(eyre!("the server never confirmed holding the whole document"));
++    }
++
+     eprintln!("upload and sync complete");
+ 
+     Ok(())

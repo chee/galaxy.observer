@@ -10,6 +10,9 @@ RUN git init -q . \
 	&& git remote add origin https://github.com/inkandswitch/subduction \
 	&& git fetch -q --depth 1 origin "$SUBDUCTION_REV" \
 	&& git checkout -q FETCH_HEAD
+# Don't exit until the server confirms it holds the whole document; see the patch.
+COPY ingest-confirm.patch /tmp/ingest-confirm.patch
+RUN git apply /tmp/ingest-confirm.patch
 RUN cargo build --release --locked -p automerge_subduction_ingest
 
 FROM node:22-bookworm-slim
