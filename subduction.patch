@@ -1,5 +1,5 @@
 diff --git a/Cargo.lock b/Cargo.lock
-index 04c1963..c1e2106 100644
+index e61779f..c4c84d0 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
 @@ -263,7 +263,7 @@ version = "0.30.1"
@@ -234,7 +234,7 @@ index 04c1963..c1e2106 100644
   "bolero",
   "future_form",
   "futures",
-@@ -5567,7 +5651,7 @@ version = "0.9.0"
+@@ -5567,7 +5651,7 @@ version = "0.8.2"
  dependencies = [
   "async-channel",
   "async-lock",
@@ -298,7 +298,7 @@ index 04c1963..c1e2106 100644
   "h2",
   "http",
 diff --git a/Cargo.toml b/Cargo.toml
-index 800b2ff..f8dfcef 100644
+index 9bc064a..b42be15 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -14,6 +14,7 @@ members = [
@@ -312,10 +312,10 @@ index 800b2ff..f8dfcef 100644
 @@ -43,6 +44,7 @@ subduction_http_longpoll = { version = "0.11.2", path = "subduction_http_longpol
  subduction_hyper = { version = "0.1.0", path = "subduction_hyper", default-features = false }
  subduction_iroh = { version = "0.10.2", path = "subduction_iroh" }
- subduction_keyhive = { version = "0.9.0", path = "subduction_keyhive" }
+ subduction_keyhive = { version = "0.8.2", path = "subduction_keyhive" }
 +subduction_object_storage = { version = "0.1.0", path = "subduction_object_storage", default-features = false }
  subduction_redb_storage = { version = "0.2.2", path = "subduction_redb_storage" }
- subduction_wasm = { version = "0.23.0", path = "subduction_wasm" }
+ subduction_wasm = { version = "0.21.2", path = "subduction_wasm" }
  subduction_wasm_bootstrap = { version = "0.3.2", path = "subduction_wasm_bootstrap" }
 @@ -137,6 +139,14 @@ wasm-tracing = { version = "3.0.0-alpha.0", git = "https://github.com/dsgallups/
  wasm_refgen = "0.2.0" # no_std by default
@@ -333,7 +333,7 @@ index 800b2ff..f8dfcef 100644
  future_incompatible = { level = "warn", priority = -1 }
  let_underscore = { level = "warn", priority = -1 }
 diff --git a/subduction_cli/Cargo.toml b/subduction_cli/Cargo.toml
-index 8d36eee..863a060 100644
+index ea43f87..45dc170 100644
 --- a/subduction_cli/Cargo.toml
 +++ b/subduction_cli/Cargo.toml
 @@ -43,12 +43,14 @@ metrics-util = { workspace = true }
@@ -479,7 +479,7 @@ index cbc8d6e..788ea7e 100644
  mod wire;
  
 diff --git a/subduction_cli/src/server.rs b/subduction_cli/src/server.rs
-index 77ada8f..ba4456c 100644
+index 77ada8f..853890c 100644
 --- a/subduction_cli/src/server.rs
 +++ b/subduction_cli/src/server.rs
 @@ -33,6 +33,7 @@ use subduction_core::{
@@ -799,7 +799,7 @@ index 77ada8f..ba4456c 100644
                                      "unknown protocol"
                                  );
                              }
-@@ -1399,6 +1515,106 @@ async fn handle_http_longpoll<H: CliWireHandler>(
+@@ -1399,6 +1515,114 @@ async fn handle_http_longpoll<H: CliWireHandler>(
      }
  }
  
@@ -817,7 +817,9 @@ index 77ada8f..ba4456c 100644
 +    use hyper::{
 +        Request, Response, StatusCode,
 +        body::{Bytes, Incoming},
-+        header::{ACCESS_CONTROL_ALLOW_ORIGIN, CACHE_CONTROL, CONTENT_TYPE, HeaderValue},
++        header::{
++            ACCESS_CONTROL_ALLOW_ORIGIN, CACHE_CONTROL, CONNECTION, CONTENT_TYPE, HeaderValue,
++        },
 +    };
 +
 +    let service = hyper::service::service_fn(move |req: Request<Incoming>| {
@@ -848,12 +850,18 @@ index 77ada8f..ba4456c 100644
 +            headers.insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
 +            headers.insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
 +            headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-cache"));
++            headers.insert(CONNECTION, HeaderValue::from_static("close"));
 +            Ok::<_, hyper::Error>(resp)
 +        }
 +    });
 +
-+    let builder =
++    // One request per connection: routing to WebSocket, long-poll or this
++    // handler happens per connection, so a kept-alive connection would answer
++    // a client's later WebSocket upgrade as a page request (Node's `fetch` and
++    // `WebSocket` share a connection pool).
++    let mut builder =
 +        hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new());
++    builder.http1().keep_alive(false);
 +    let conn = builder.serve_connection(hyper_util::rt::TokioIo::new(tcp), service);
 +
 +    if let Err(e) = conn.await {
@@ -1129,10 +1137,10 @@ index 0000000..3c03952
 +}
 diff --git a/subduction_cli/tests/http.rs b/subduction_cli/tests/http.rs
 new file mode 100644
-index 0000000..5023ea3
+index 0000000..4919048
 --- /dev/null
 +++ b/subduction_cli/tests/http.rs
-@@ -0,0 +1,222 @@
+@@ -0,0 +1,238 @@
 +//! Plain HTTP on the sync port: the keyhive contact card at
 +//! `/.well-known/keyhive/contact-card.json` and files from `--static-dir`,
 +//! beside the sync transports.
@@ -1347,6 +1355,22 @@ index 0000000..5023ea3
 +        let resp = reqwest::get(server.url(path)).await.unwrap();
 +        assert_eq!(resp.status(), 404, "{path}");
 +    }
++}
++
++/// A plain GET does not keep its connection: clients that pool connections
++/// (Node's `fetch` and `WebSocket`) must open a new one for the upgrade.
++#[tokio::test]
++async fn plain_get_closes_its_connection() {
++    let server = spawn_server("keyhive", &"55".repeat(32), &[]).await;
++    let mut tcp = TcpStream::connect(("127.0.0.1", server.port)).unwrap();
++    tcp.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
++    tcp.write_all(format!("GET {CONTACT_CARD_PATH} HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes())
++        .unwrap();
++    // read_to_string only returns once the server closes the connection
++    let mut response = String::new();
++    tcp.read_to_string(&mut response).unwrap();
++    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
++    assert!(response.to_ascii_lowercase().contains("connection: close"));
 +}
 +
 +#[tokio::test]
