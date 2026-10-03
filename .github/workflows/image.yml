@@ -72,7 +72,7 @@ jobs:
             ${{ env.IMAGE }}:${{ github.sha }}
 
   # Railway does not redeploy when an image tag moves. With a Railway project
-  # token in the RAILWAY_TOKEN secret, tell each service to pull the new image.
+  # token in the RAILWAY_TOKEN secret, tell the service to pull the new image.
   deploy:
     needs: image
     runs-on: ubuntu-24.04
@@ -83,6 +83,4 @@ jobs:
         if: env.RAILWAY_TOKEN != ''
         run: |
           npm install --global @railway/cli
-          for service in galaxy subduction; do
-            railway redeploy --service "$service" --yes
-          done
+          railway redeploy --service galaxy --yes
