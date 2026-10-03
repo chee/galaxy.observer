@@ -177,7 +177,9 @@ impl ObjectStorage {
     /// `s3://` takes its credentials and endpoint from the environment
     /// (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`,
     /// `AWS_ENDPOINT_URL`, …), which is how S3-compatible services are
-    /// addressed.
+    /// addressed. With `AWS_VIRTUAL_HOSTED_STYLE_REQUEST=true` the endpoint
+    /// may be the service's base endpoint, as the AWS SDKs take it: the
+    /// bucket is put in front of its host.
     ///
     /// # Errors
     ///
@@ -186,11 +188,21 @@ impl ObjectStorage {
     pub fn from_url(url: &Url) -> Result<Self, ObjectStorageError> {
         #[cfg(feature = "aws")]
         if url.scheme() == "s3" {
-            let store = object_store::aws::AmazonS3Builder::from_env()
-                .with_url(url.as_str())
-                .build()?;
+            use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
+
+            let mut builder = AmazonS3Builder::from_env().with_url(url.as_str());
+            let virtual_hosted = builder
+                .get_config_value(&AmazonS3ConfigKey::VirtualHostedStyleRequest)
+                .is_some_and(|v| v == "true");
+            if virtual_hosted
+                && let Some(bucket) = url.host_str()
+                && let Some(endpoint) = builder.get_config_value(&AmazonS3ConfigKey::Endpoint)
+                && let Some(endpoint) = virtual_hosted_endpoint(&endpoint, bucket)
+            {
+                builder = builder.with_endpoint(endpoint);
+            }
             let prefix = Path::from_url_path(url.path())?;
-            return Ok(Self::new(Arc::new(store), prefix));
+            return Ok(Self::new(Arc::new(builder.build()?), prefix));
         }
 
         let (store, prefix) = object_store::parse_url(url)?;
@@ -598,9 +610,50 @@ impl ObjectStorage {
     }
 }
 
+/// The virtual-hosted form of a base endpoint: `https://bucket.host` for
+/// `https://host`. `None` when the endpoint already names the bucket (or is
+/// not a URL with a host), in which case it is used as given.
+#[cfg(feature = "aws")]
+fn virtual_hosted_endpoint(endpoint: &str, bucket: &str) -> Option<String> {
+    let mut url = Url::parse(endpoint).ok()?;
+    let host = url.host_str()?;
+    if host.starts_with(&format!("{bucket}.")) {
+        return None;
+    }
+    let host = format!("{bucket}.{host}");
+    url.set_host(Some(&host)).ok()?;
+    Some(url.as_str().trim_end_matches('/').to_owned())
+}
+
 /// Decode 64 hex characters into 32 bytes.
 fn decode_hex32(hex: &str) -> Option<[u8; 32]> {
     let mut out = [0u8; 32];
     hex::decode_to_slice(hex, &mut out).ok()?;
     Some(out)
+}
+
+#[cfg(all(test, feature = "aws"))]
+mod tests {
+    use super::virtual_hosted_endpoint;
+
+    #[test]
+    fn base_endpoint_gains_the_bucket() {
+        assert_eq!(
+            virtual_hosted_endpoint("https://t3.storageapi.dev", "nebula-abc").as_deref(),
+            Some("https://nebula-abc.t3.storageapi.dev")
+        );
+        assert_eq!(
+            virtual_hosted_endpoint("http://localhost:9000/", "b").as_deref(),
+            Some("http://b.localhost:9000")
+        );
+    }
+
+    #[test]
+    fn bucket_endpoint_is_left_alone() {
+        assert_eq!(
+            virtual_hosted_endpoint("https://nebula-abc.t3.storageapi.dev", "nebula-abc"),
+            None
+        );
+        assert_eq!(virtual_hosted_endpoint("not a url", "b"), None);
+    }
 }
