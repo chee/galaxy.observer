@@ -7,11 +7,12 @@
 // which uploads it under the zero-padded legacy ID, so old automerge: URLs work.
 //
 // Env: DATABASE_URL, AUTOMERGE_TABLE (default "starlight"), SERVER (a ws(s) url),
-// SERVICE_NAME (default: the server's host), DRY_RUN=1 to rebuild and report
-// without uploading.
+// SERVICE_NAME (default: the server's host), CONCURRENCY (default 8),
+// DRY_RUN=1 to rebuild and report without uploading. Uploads are idempotent,
+// so a run that stops part way can simply be run again.
 
 import { execFile } from "node:child_process";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -42,29 +43,28 @@ for (const row of rows) {
 console.log(`${rows.length} rows in ${table}: ${JSON.stringify(kinds)}; ${docs.size} documents`);
 
 const dir = await mkdtemp(path.join(tmpdir(), "starlight-"));
+const concurrency = Number(process.env.CONCURRENCY ?? 8);
 const failed = [];
+let done = 0;
 let uploaded = 0;
 let bytes = 0;
-for (const [id, chunks] of docs) {
+
+async function migrate(id, chunks) {
 	let doc;
 	try {
 		doc = A.init();
 		for (const chunk of [...chunks.snapshots, ...chunks.incrementals]) doc = A.loadIncremental(doc, chunk);
 	} catch (e) {
 		failed.push([id, `rebuild: ${e.message}`]);
-		continue;
+		return;
+	}
+	if (A.getAllChanges(doc).length === 0) {
+		failed.push([id, "no changes"]);
+		return;
 	}
 	const saved = A.save(doc);
 	bytes += saved.length;
-	const changes = A.getAllChanges(doc).length;
-	if (changes === 0) {
-		failed.push([id, "no changes"]);
-		continue;
-	}
-	if (dryRun) {
-		console.log(`would upload ${id}: ${changes} changes, ${saved.length} bytes`);
-		continue;
-	}
+	if (dryRun) return;
 	const file = path.join(dir, `${id}.am`);
 	await writeFile(file, saved);
 	try {
@@ -74,12 +74,23 @@ for (const [id, chunks] of docs) {
 			{ timeout: 120_000 },
 		);
 		uploaded++;
-		console.log(`uploaded ${id}: ${changes} changes, ${saved.length} bytes`);
 	} catch (e) {
 		const lines = (e.stderr || e.message).split("\n").filter(l => l.trim() && !/BACKTRACE|^\s*(at |\d+:)/.test(l));
 		failed.push([id, `upload: ${lines.slice(-3).join(" / ")}`]);
+	} finally {
+		await rm(file, { force: true });
 	}
 }
+
+const queue = [...docs];
+await Promise.all(
+	Array.from({ length: concurrency }, async () => {
+		for (let next = queue.shift(); next; next = queue.shift()) {
+			await migrate(...next);
+			if (++done % 100 === 0) console.log(`${done}/${docs.size} done, ${uploaded} uploaded, ${failed.length} failed`);
+		}
+	}),
+);
 
 console.log(`${dryRun ? "dry run: " : ""}${uploaded} uploaded, ${failed.length} failed, ${bytes} bytes of documents`);
 for (const [id, why] of failed) console.log(`failed ${id}: ${why}`);
