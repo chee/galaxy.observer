@@ -57,8 +57,9 @@ same content completes. `save_batch` is not atomic.
 
 ## Cost
 
-Hydrating a tree costs one `LIST` per 1000 objects plus one `GET` per item,
-and every save writes the registration marker again. Deployments with very
+A save is one `PUT` (two with a large blob), plus one for the tree's
+registration marker the first time a process saves to that tree. Hydrating a
+tree costs one `LIST` per 1000 objects plus one `GET` per item. Deployments with very
 many loose commits per tree pay for that in requests; fragments keep the
 count down.
 
