@@ -8,7 +8,8 @@
 //
 // Env: DATABASE_URL, AUTOMERGE_TABLE (default "starlight"), SERVER (a ws(s) url),
 // SERVICE_NAME (default: the server's host), CONCURRENCY (default 8),
-// DRY_RUN=1 to rebuild and report without uploading. Uploads are idempotent,
+// DRY_RUN=1 to rebuild and report without uploading, SAMPLE=n to print n
+// random documents' IDs and heads (for checking them against the server). Uploads are idempotent,
 // so a run that stops part way can simply be run again.
 
 import { execFile } from "node:child_process";
@@ -64,6 +65,7 @@ async function migrate(id, chunks) {
 	}
 	const saved = A.save(doc);
 	bytes += saved.length;
+	if (sample.has(id)) console.log(`sample ${id} heads=${A.getHeads(doc).sort().join(",")}`);
 	if (dryRun) return;
 	const file = path.join(dir, `${id}.am`);
 	await writeFile(file, saved);
@@ -82,6 +84,8 @@ async function migrate(id, chunks) {
 	}
 }
 
+const sampleSize = Number(process.env.SAMPLE ?? 0);
+const sample = new Set([...docs.keys()].sort(() => Math.random() - 0.5).slice(0, sampleSize));
 const queue = [...docs];
 await Promise.all(
 	Array.from({ length: concurrency }, async () => {
