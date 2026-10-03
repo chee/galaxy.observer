@@ -47,11 +47,14 @@
 //!
 //! | operation                 | requests                                     |
 //! |---------------------------|----------------------------------------------|
-//! | save one item             | 2 `PUT` (+1 for a large blob)                |
-//! | save a batch of `n`       | `n + 1` `PUT` (+1 per large blob)            |
-//! | is a tree registered?     | 1 `HEAD`                                     |
+//! | save one item             | 1 `PUT` (+1 for a large blob)                |
+//! | save a batch of `n`       | `n` `PUT` (+1 per large blob)                |
+//! | is a tree registered?     | 1 `HEAD`, then cached                        |
 //! | hydrate a tree (metadata) | 1 `LIST` per 1000 objects + 1 `GET` per item |
 //! | load a tree with blobs    | the above + 1 `GET` per large blob           |
+//!
+//! The first save of a tree in a process also writes its registration marker
+//! (one more `PUT`); later saves know it is there.
 //!
 //! # Consistency
 //!
@@ -74,7 +77,11 @@ mod error;
 mod keyhive;
 mod storage;
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::{Arc, Mutex, PoisonError},
+    time::Instant,
+};
 
 use futures::{StreamExt, TryStreamExt, stream};
 use object_store::{ObjectStore, ObjectStoreExt, PutPayload, path::Path};
@@ -157,6 +164,9 @@ pub struct ObjectStorage {
     prefix: Path,
     inline_threshold: usize,
     concurrency: usize,
+    /// Trees whose registration marker this process has written or seen, so
+    /// saves after the first skip re-writing it. Shared by clones.
+    registered: Arc<Mutex<HashSet<SedimentreeId>>>,
 }
 
 impl ObjectStorage {
@@ -168,6 +178,7 @@ impl ObjectStorage {
             prefix,
             inline_threshold: DEFAULT_INLINE_THRESHOLD,
             concurrency: DEFAULT_CONCURRENCY,
+            registered: Arc::default(),
         }
     }
 
@@ -247,16 +258,56 @@ impl ObjectStorage {
 
     // ==================== Registration ====================
 
+    // Markers are cached per process: once a tree's marker is known to exist,
+    // saves don't write it again and existence checks don't ask the store. A
+    // tree deleted by another process sharing the bucket stays cached here
+    // until this one restarts; the server never deletes trees, so this only
+    // matters to tools that do.
+
+    fn known_registered(&self, tree: SedimentreeId) -> bool {
+        self.registered
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(&tree)
+    }
+
+    fn remember_registered(&self, tree: SedimentreeId, registered: bool) {
+        let mut cache = self
+            .registered
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if registered {
+            cache.insert(tree);
+        } else {
+            cache.remove(&tree);
+        }
+    }
+
     async fn register(&self, tree: SedimentreeId) -> Result<(), ObjectStorageError> {
-        self.store
-            .put(&self.id_path(tree), PutPayload::default())
-            .await?;
+        if self.known_registered(tree) {
+            return Ok(());
+        }
+        let marker = self.id_path(tree);
+        timed(
+            "put",
+            &marker,
+            self.store.put(&marker, PutPayload::default()),
+        )
+        .await?;
+        self.remember_registered(tree, true);
         Ok(())
     }
 
     async fn is_registered(&self, tree: SedimentreeId) -> Result<bool, ObjectStorageError> {
-        match self.store.head(&self.id_path(tree)).await {
-            Ok(_) => Ok(true),
+        if self.known_registered(tree) {
+            return Ok(true);
+        }
+        let marker = self.id_path(tree);
+        match timed("head", &marker, self.store.head(&marker)).await {
+            Ok(_) => {
+                self.remember_registered(tree, true);
+                Ok(true)
+            }
             Err(object_store::Error::NotFound { .. }) => Ok(false),
             Err(e) => Err(e.into()),
         }
@@ -330,9 +381,14 @@ impl ObjectStorage {
     /// blob that was not written.
     async fn write(&self, pending: PendingSave) -> Result<(), ObjectStorageError> {
         if let Some((path, blob)) = pending.blob {
-            self.store.put(&path, blob.into()).await?;
+            timed("put", &path, self.store.put(&path, blob.into())).await?;
         }
-        self.store.put(&pending.item, pending.value.into()).await?;
+        timed(
+            "put",
+            &pending.item,
+            self.store.put(&pending.item, pending.value.into()),
+        )
+        .await?;
         Ok(())
     }
 
@@ -352,6 +408,7 @@ impl ObjectStorage {
     // ==================== Loading ====================
 
     async fn list_items(&self, prefix: &Path, what: &str) -> Result<Listing, ObjectStorageError> {
+        let started = Instant::now();
         let mut objects = self.store.list(Some(prefix));
         let mut listing = Listing::new();
         while let Some(object) = objects.try_next().await? {
@@ -377,13 +434,18 @@ impl ObjectStorage {
                 entry.item = true;
             }
         }
+        tracing::debug!(op = "list", path = %prefix, items = listing.len(), ms = started.elapsed().as_millis(), "object store");
         Ok(listing)
     }
 
     /// `GET` an object, with a missing one as `None`.
     async fn get(&self, path: &Path) -> Result<Option<Vec<u8>>, ObjectStorageError> {
-        match self.store.get(path).await {
-            Ok(result) => Ok(Some(result.bytes().await?.to_vec())),
+        match timed("get", path, async {
+            self.store.get(path).await?.bytes().await
+        })
+        .await
+        {
+            Ok(bytes) => Ok(Some(bytes.to_vec())),
             Err(object_store::Error::NotFound { .. }) => Ok(None),
             Err(e) => Err(e.into()),
         }
@@ -602,6 +664,7 @@ impl ObjectStorage {
 
     /// Unregister a tree and delete everything stored for it.
     async fn delete_tree(&self, tree: SedimentreeId) -> Result<(), ObjectStorageError> {
+        self.remember_registered(tree, false);
         match self.store.delete(&self.id_path(tree)).await {
             Ok(()) | Err(object_store::Error::NotFound { .. }) => {}
             Err(e) => return Err(e.into()),
@@ -623,6 +686,25 @@ fn virtual_hosted_endpoint(endpoint: &str, bucket: &str) -> Option<String> {
     let host = format!("{bucket}.{host}");
     url.set_host(Some(&host)).ok()?;
     Some(url.as_str().trim_end_matches('/').to_owned())
+}
+
+/// Run one object store request, logging how long it took at debug level
+/// (`RUST_LOG=subduction_object_storage=debug`).
+async fn timed<T>(
+    op: &'static str,
+    path: &Path,
+    request: impl Future<Output = object_store::Result<T>>,
+) -> object_store::Result<T> {
+    let started = Instant::now();
+    let result = request.await;
+    tracing::debug!(
+        op,
+        path = %path,
+        ok = result.is_ok(),
+        ms = started.elapsed().as_millis(),
+        "object store"
+    );
+    result
 }
 
 /// Decode 64 hex characters into 32 bytes.

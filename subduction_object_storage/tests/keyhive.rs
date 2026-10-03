@@ -58,10 +58,11 @@ async fn archives_and_events_roundtrip() -> testresult::TestResult {
     KeyhiveStorage::<Sendable>::delete_event(&keyhive, b).await?;
     KeyhiveStorage::<Sendable>::delete_event(&keyhive, b).await?;
     KeyhiveStorage::<Sendable>::delete_archive(&keyhive, a).await?;
-    assert!(
+    assert_eq!(
         KeyhiveStorage::<Sendable>::load_archives(&keyhive)
             .await?
-            .is_empty()
+            .len(),
+        0
     );
     assert_eq!(
         KeyhiveStorage::<Sendable>::load_events(&keyhive)
@@ -71,10 +72,11 @@ async fn archives_and_events_roundtrip() -> testresult::TestResult {
     );
 
     // keyhive objects are not sedimentree ids
-    assert!(
+    assert_eq!(
         subduction_core::storage::traits::Storage::<Sendable>::load_all_sedimentree_ids(&storage)
             .await?
-            .is_empty()
+            .len(),
+        0
     );
 
     Ok(())

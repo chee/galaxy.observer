@@ -413,10 +413,11 @@ async fn deletes() -> testresult::TestResult {
     );
 
     Storage::<Sendable>::delete_loose_commits(&storage, id).await?;
-    assert!(
+    assert_eq!(
         Storage::<Sendable>::load_loose_commits(&storage, id)
             .await?
-            .is_empty()
+            .len(),
+        0
     );
     assert_eq!(
         Storage::<Sendable>::load_fragments(&storage, id)
@@ -428,10 +429,11 @@ async fn deletes() -> testresult::TestResult {
     assert!(Storage::<Sendable>::contains_sedimentree_id(&storage, id).await?);
 
     Storage::<Sendable>::delete_fragments(&storage, id).await?;
-    assert!(
+    assert_eq!(
         Storage::<Sendable>::load_fragments(&storage, id)
             .await?
-            .is_empty()
+            .len(),
+        0
     );
 
     Storage::<Sendable>::delete_sedimentree_id(&storage, id).await?;
@@ -466,11 +468,12 @@ async fn delete_tree_removes_items() -> testresult::TestResult {
     Storage::<Sendable>::save_batch(&storage, id, commits, Vec::new()).await?;
     Storage::<Sendable>::delete_sedimentree_id(&storage, id).await?;
 
-    assert!(object_names(store.as_ref()).await?.is_empty());
-    assert!(
+    assert_eq!(object_names(store.as_ref()).await?.len(), 0);
+    assert_eq!(
         Storage::<Sendable>::load_all_sedimentree_ids(&storage)
             .await?
-            .is_empty()
+            .len(),
+        0
     );
 
     Ok(())
@@ -575,6 +578,49 @@ async fn survives_reopen_by_url() -> testresult::TestResult {
     assert_eq!(all.len(), 1);
     assert_eq!(all[0].signed().as_bytes(), &original_signed[..]);
     assert_eq!(all[0].blob().contents(), &vec![7; THRESHOLD * 2]);
+
+    Ok(())
+}
+
+/// A tree's registration marker is written by its first save only; later
+/// saves in the same process skip it. Deleting the tree forgets that, so the
+/// next save registers it again.
+#[tokio::test]
+async fn registration_is_written_once_per_tree() -> testresult::TestResult {
+    let (store, storage) = memory();
+    let signer = test_signer();
+    let id = SedimentreeId::new([0xB1; 32]);
+    let marker = Path::from(format!("sync/ids/{}", hex::encode(id.as_bytes())));
+
+    let first = seal_commit(&signer, id, CommitId::new([1; 32]), vec![1]).await;
+    Storage::<Sendable>::save_loose_commit(&storage, id, first).await?;
+    assert!(
+        store.head(&marker).await.is_ok(),
+        "the first save registers"
+    );
+
+    // Remove the marker behind the storage's back: a second save must not
+    // write it again, which shows the save skipped the PUT.
+    store.delete(&marker).await?;
+    let second = seal_commit(&signer, id, CommitId::new([2; 32]), vec![2]).await;
+    Storage::<Sendable>::save_loose_commit(&storage, id, second).await?;
+    assert!(
+        store.head(&marker).await.is_err(),
+        "later saves don't rewrite the marker"
+    );
+    assert!(
+        Storage::<Sendable>::contains_sedimentree_id(&storage, id).await?,
+        "the process remembers the tree is registered"
+    );
+
+    Storage::<Sendable>::delete_sedimentree_id(&storage, id).await?;
+    assert!(!Storage::<Sendable>::contains_sedimentree_id(&storage, id).await?);
+    let third = seal_commit(&signer, id, CommitId::new([3; 32]), vec![3]).await;
+    Storage::<Sendable>::save_loose_commit(&storage, id, third).await?;
+    assert!(
+        store.head(&marker).await.is_ok(),
+        "a deleted tree registers again"
+    );
 
     Ok(())
 }
