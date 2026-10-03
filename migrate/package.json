@@ -1,0 +1,9 @@
+{
+	"name": "starlight-migration",
+	"private": true,
+	"type": "module",
+	"dependencies": {
+		"@automerge/automerge": "^3.5.0",
+		"pg": "^8.23.1"
+	}
+}

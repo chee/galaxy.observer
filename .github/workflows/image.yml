@@ -5,6 +5,8 @@ name: image
 on:
   push:
     branches: [subduction]
+    paths-ignore:
+      - "migrate/**"
   workflow_dispatch:
 
 permissions:
