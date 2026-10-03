@@ -1,0 +1,1344 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 04c1963..c1e2106 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -263,7 +263,7 @@ version = "0.30.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "16e2cdb6d5ed835199484bb92bb8b3edd526effe995c61732580439c1a67e2e9"
+ dependencies = [
+- "base64",
++ "base64 0.22.1",
+  "http",
+  "log",
+  "url",
+@@ -464,6 +464,12 @@ version = "0.22.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+ 
++[[package]]
++name = "base64"
++version = "0.23.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
++
+ [[package]]
+ name = "base64ct"
+ version = "1.8.3"
+@@ -1103,6 +1109,16 @@ dependencies = [
+  "libc",
+ ]
+ 
++[[package]]
++name = "crc-fast"
++version = "1.10.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e75b2483e97a5a7da73ac68a05b629f9c53cff58d8ed1c77866079e18b00dba5"
++dependencies = [
++ "digest 0.10.7",
++ "spin",
++]
++
+ [[package]]
+ name = "crc32fast"
+ version = "1.5.1"
+@@ -1302,7 +1318,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
+ dependencies = [
+  "data-encoding",
+- "syn 1.0.109",
++ "syn 3.0.4",
+ ]
+ 
+ [[package]]
+@@ -2089,7 +2105,7 @@ version = "7.6.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "f49d1053f4708f0af3cf9fc5bffc7e68a914a3c45becb231c80068c9c3f78bea"
+ dependencies = [
+- "base64",
++ "base64 0.22.1",
+  "byteorder",
+  "flate2",
+  "nom 8.0.0",
+@@ -2335,7 +2351,7 @@ version = "0.1.20"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "96547c2556ec9d12fb1578c4eaf448b04993e7fb79cbaad930a656880a6bdfa0"
+ dependencies = [
+- "base64",
++ "base64 0.22.1",
+  "bytes",
+  "futures-channel",
+  "futures-util",
+@@ -3089,6 +3105,16 @@ version = "0.8.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
+ 
++[[package]]
++name = "md-5"
++version = "0.11.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "69b6441f590336821bb897fb28fc622898ccceb1d6cea3fde5ea86b090c4de98"
++dependencies = [
++ "cfg-if",
++ "digest 0.11.3",
++]
++
+ [[package]]
+ name = "memchr"
+ version = "2.8.3"
+@@ -3129,7 +3155,7 @@ version = "0.18.3"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "1db0d8f1fc9e62caebd0319e11eaec5822b0186c171568f0480b46a0137f9108"
+ dependencies = [
+- "base64",
++ "base64 0.22.1",
+  "evmap",
+  "http-body-util",
+  "hyper",
+@@ -3536,6 +3562,18 @@ dependencies = [
+  "libc",
+ ]
+ 
++[[package]]
++name = "nix"
++version = "0.31.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d"
++dependencies = [
++ "bitflags 2.13.1",
++ "cfg-if",
++ "cfg_aliases",
++ "libc",
++]
++
+ [[package]]
+ name = "nom"
+ version = "7.1.3"
+@@ -3807,6 +3845,48 @@ dependencies = [
+  "memchr",
+ ]
+ 
++[[package]]
++name = "object_store"
++version = "0.14.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f1796bc93603f78c5760a69f2d58badc9618d22adade0a95385bb2adbae4eb94"
++dependencies = [
++ "async-trait",
++ "aws-lc-rs",
++ "base64 0.23.1",
++ "bytes",
++ "chrono",
++ "crc-fast",
++ "form_urlencoded",
++ "futures-channel",
++ "futures-core",
++ "futures-util",
++ "http",
++ "http-body-util",
++ "humantime",
++ "hyper",
++ "itertools 0.15.0",
++ "md-5",
++ "nix 0.31.3",
++ "parking_lot",
++ "percent-encoding",
++ "quick-xml 0.41.0",
++ "rand 0.10.2",
++ "reqwest 0.13.4",
++ "rustls-pki-types",
++ "serde",
++ "serde_json",
++ "serde_urlencoded",
++ "thiserror 2.0.20",
++ "tokio",
++ "tracing",
++ "url",
++ "walkdir",
++ "wasm-bindgen-futures",
++ "web-time",
++ "windows-sys 0.61.2",
++]
++
+ [[package]]
+ name = "once_cell"
+ version = "1.21.4"
+@@ -4027,7 +4107,7 @@ version = "1.10.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "7da1d65da6dd5d1e44199ac0f58712d241c0f439f80adea8924d832384087f85"
+ dependencies = [
+- "base64",
++ "base64 0.22.1",
+  "indexmap",
+  "quick-xml 0.41.0",
+  "serde",
+@@ -4100,7 +4180,7 @@ version = "0.19.3"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "ca97242f016e090a25330613bc2382aab65eb22f9149dbe84d8f8e711d49a530"
+ dependencies = [
+- "base64",
++ "base64 0.22.1",
+  "bytes",
+  "derive_more 2.1.1",
+  "hyper-util",
+@@ -4355,6 +4435,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "e660451e55124f798a69a5af3f49ccfbefbd41910eefd25caf2393e1f3473ec1"
+ dependencies = [
+  "memchr",
++ "serde",
+ ]
+ 
+ [[package]]
+@@ -4630,7 +4711,7 @@ version = "0.12.28"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
+ dependencies = [
+- "base64",
++ "base64 0.22.1",
+  "bytes",
+  "futures-core",
+  "http",
+@@ -4666,10 +4747,11 @@ version = "0.13.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
+ dependencies = [
+- "base64",
++ "base64 0.22.1",
+  "bytes",
+  "futures-core",
+  "futures-util",
++ "h2",
+  "http",
+  "http-body",
+  "http-body-util",
+@@ -5388,12 +5470,14 @@ dependencies = [
+  "reqwest 0.13.4",
+  "sedimentree_core",
+  "sedimentree_fs_storage",
++ "serde_json",
+  "subduction_core",
+  "subduction_crypto",
+  "subduction_ephemeral",
+  "subduction_http_longpoll",
+  "subduction_iroh",
+  "subduction_keyhive",
++ "subduction_object_storage",
+  "subduction_redb_storage",
+  "subduction_websocket",
+  "tempfile",
+@@ -5518,7 +5602,7 @@ version = "0.1.0"
+ dependencies = [
+  "async-tungstenite",
+  "axum",
+- "base64",
++ "base64 0.22.1",
+  "bolero",
+  "future_form",
+  "futures",
+@@ -5567,7 +5651,7 @@ version = "0.9.0"
+ dependencies = [
+  "async-channel",
+  "async-lock",
+- "base64",
++ "base64 0.22.1",
+  "bincode",
+  "blake3",
+  "bolero",
+@@ -5595,6 +5679,26 @@ dependencies = [
+  "tracing",
+ ]
+ 
++[[package]]
++name = "subduction_object_storage"
++version = "0.1.0"
++dependencies = [
++ "future_form",
++ "futures",
++ "hex",
++ "object_store",
++ "sedimentree_core",
++ "subduction_core",
++ "subduction_crypto",
++ "subduction_keyhive",
++ "tempfile",
++ "testresult",
++ "thiserror 2.0.20",
++ "tokio",
++ "tracing",
++ "url",
++]
++
+ [[package]]
+ name = "subduction_redb_storage"
+ version = "0.2.2"
+@@ -5812,7 +5916,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
+ dependencies = [
+  "fastrand",
+- "getrandom 0.3.4",
++ "getrandom 0.4.3",
+  "once_cell",
+  "rustix",
+  "windows-sys 0.61.2",
+@@ -6038,7 +6142,7 @@ version = "0.13.3"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "d52efb639344a7c6adb8e62c6f3d2c19c001ff1b79a5041ba1c6ed42e19c6aa5"
+ dependencies = [
+- "base64",
++ "base64 0.22.1",
+  "bytes",
+  "futures-core",
+  "futures-sink",
+@@ -6110,7 +6214,7 @@ checksum = "ac2a5518c70fa84342385732db33fb3f44bc4cc748936eb5833d2df34d6445ef"
+ dependencies = [
+  "async-trait",
+  "axum",
+- "base64",
++ "base64 0.22.1",
+  "bytes",
+  "h2",
+  "http",
+diff --git a/Cargo.toml b/Cargo.toml
+index 800b2ff..f8dfcef 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -14,6 +14,7 @@ members = [
+   "subduction_hyper",
+   "subduction_iroh",
+   "subduction_keyhive",
++  "subduction_object_storage",
+   "subduction_redb_storage",
+   "subduction_wasm",
+   "subduction_wasm_bootstrap",
+@@ -43,6 +44,7 @@ subduction_http_longpoll = { version = "0.11.2", path = "subduction_http_longpol
+ subduction_hyper = { version = "0.1.0", path = "subduction_hyper", default-features = false }
+ subduction_iroh = { version = "0.10.2", path = "subduction_iroh" }
+ subduction_keyhive = { version = "0.9.0", path = "subduction_keyhive" }
++subduction_object_storage = { version = "0.1.0", path = "subduction_object_storage", default-features = false }
+ subduction_redb_storage = { version = "0.2.2", path = "subduction_redb_storage" }
+ subduction_wasm = { version = "0.23.0", path = "subduction_wasm" }
+ subduction_wasm_bootstrap = { version = "0.3.2", path = "subduction_wasm_bootstrap" }
+@@ -137,6 +139,14 @@ wasm-tracing = { version = "3.0.0-alpha.0", git = "https://github.com/dsgallups/
+ wasm_refgen = "0.2.0" # no_std by default
+ windows-sys = "0.61.2"
+ 
++# `subduction_object_storage` is developed outside this workspace against the
++# published crates; build it against the workspace's own copies.
++[patch.crates-io]
++sedimentree_core = { path = "sedimentree_core" }
++subduction_core = { path = "subduction_core" }
++subduction_crypto = { path = "subduction_crypto" }
++subduction_keyhive = { path = "subduction_keyhive" }
++
+ [workspace.lints.rust]
+ future_incompatible = { level = "warn", priority = -1 }
+ let_underscore = { level = "warn", priority = -1 }
+diff --git a/subduction_cli/Cargo.toml b/subduction_cli/Cargo.toml
+index 8d36eee..863a060 100644
+--- a/subduction_cli/Cargo.toml
++++ b/subduction_cli/Cargo.toml
+@@ -43,12 +43,14 @@ metrics-util = { workspace = true }
+ nonempty = { workspace = true, features = ["std"] }
+ rand = { workspace = true }
+ reqwest = { workspace = true }
++serde_json = { workspace = true }
+ sedimentree_core = { workspace = true, features = ["std"] }
+ sedimentree_fs_storage = { workspace = true }
+ subduction_core = { workspace = true, features = ["system_time", "metrics"] }
+ subduction_ephemeral = { workspace = true, features = ["std"] }
+ subduction_crypto = { workspace = true }
+ subduction_keyhive = { workspace = true, features = ["runtime"] }
++subduction_object_storage = { workspace = true, features = ["aws", "keyhive"] }
+ subduction_redb_storage = { workspace = true, features = ["metrics"] }
+ subduction_http_longpoll = { workspace = true, features = [
+   "metrics",
+diff --git a/subduction_cli/README.md b/subduction_cli/README.md
+index 92ebd82..73262d8 100644
+--- a/subduction_cli/README.md
++++ b/subduction_cli/README.md
+@@ -133,6 +133,20 @@ subduction_cli server --socket 0.0.0.0:8080 --key-file ./key
+ | `--service-name <NAME>` | socket address | Service name for discovery mode handshake |
+ | `--max-message-size <BYTES>` | `52428800` (50 MB) | Maximum WebSocket message size |
+ 
++#### Storage Options
++
++| Flag | Default | Description |
++|------|---------|-------------|
++| `--object-store <URL>` | none | Keep sedimentree data in an object store instead of `--data-dir`: `s3://bucket/prefix` or `file:///dir`. Also read from `SUBDUCTION_OBJECT_STORE`. |
++
++By default the server stores everything under `--data-dir`. With
++`--object-store`, commits, fragments and blobs live in the bucket and several
++servers can share it; `s3://` takes credentials and endpoint from the `AWS_*`
++environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
++`AWS_REGION`, `AWS_ENDPOINT_URL`), which is how S3-compatible services are
++addressed. Keyhive state goes in the same bucket, so `--data-dir` is unused;
++`--admin-addr` is not available.
++
+ #### Transport Options
+ 
+ | Flag | Default | Description |
+@@ -350,6 +364,25 @@ Caddy automatically handles WebSocket upgrades and TLS certificates.
+ 
+ </details>
+ 
++## Keyhive Contact Card
++
++With `--auth keyhive` (the default) the server publishes its keyhive contact
++card as JSON on the sync port:
++
++```bash
++curl https://sync.example.com/.well-known/keyhive/contact-card.json
++```
++
++A client hands this to keyhive to delegate access to the server. With
++`--auth open` the path answers 404.
++
++## Static Files
++
++`--static-dir <DIR>` serves the files in a directory to plain HTTP `GET`
++requests on the sync port, with `/` as `index.html`. WebSocket upgrades and
++long-poll requests are unaffected, so a server can carry a homepage at the
++same URL clients sync with.
++
+ ## Monitoring
+ 
+ ### Prometheus
+diff --git a/subduction_cli/src/handler.rs b/subduction_cli/src/handler.rs
+index 9f0dbe7..08eecce 100644
+--- a/subduction_cli/src/handler.rs
++++ b/subduction_cli/src/handler.rs
+@@ -11,8 +11,9 @@
+ use std::sync::Arc;
+ 
+ use crate::{
+-    keyhive::{CliConnKeyhiveAdapter, FsKeyhiveStorage},
++    keyhive::CliConnKeyhiveAdapter,
+     policy::CliKeyhivePolicyHandle,
++    storage::{CliKeyhiveStorage, CliStorage},
+     transport::UnifiedTransport,
+     wire::CliWireMessage,
+ };
+@@ -33,7 +34,6 @@ use subduction_ephemeral::{
+     clock::std_clock::StdClock, handler::EphemeralHandler, policy::OpenEphemeralPolicy,
+ };
+ use subduction_keyhive::handler::{SendableKeyhiveHandler, SendableRuntimeProtocol};
+-use subduction_redb_storage::RedbStorage;
+ use subduction_websocket::tokio::TokioSpawn;
+ 
+ /// The concrete connection type used by the CLI server.
+@@ -45,18 +45,18 @@ pub(crate) type CliEphemeralHandler =
+ 
+ /// The concrete keyhive protocol type for the CLI server.
+ pub(crate) type CliKeyhiveProtocol =
+-    Arc<SendableRuntimeProtocol<CliConnKeyhiveAdapter, FsKeyhiveStorage>>;
++    Arc<SendableRuntimeProtocol<CliConnKeyhiveAdapter, CliKeyhiveStorage>>;
+ 
+ /// The concrete keyhive handler type for the CLI server.
+ pub(crate) type CliKeyhiveHandler = SendableKeyhiveHandler<
+     CliConnKeyhiveAdapter,
+-    FsKeyhiveStorage,
++    CliKeyhiveStorage,
+     CliConn,
+     fn(Authenticated<CliConn, Sendable>) -> CliConnKeyhiveAdapter,
+ >;
+ 
+ /// Concrete `ListenError` for the CLI handler.
+-type CliListenError = ListenError<Sendable, MetricsStorage<RedbStorage>, CliConn, CliWireMessage>;
++type CliListenError = ListenError<Sendable, MetricsStorage<CliStorage>, CliConn, CliWireMessage>;
+ 
+ /// Bundles the bounds the server's connection plumbing requires of a CLI
+ /// handler, so [`CliHandler`] and [`CliHandlerOpenPolicy`] can be used
+@@ -84,7 +84,7 @@ impl<H> CliWireHandler for H where
+ pub(crate) type CliSyncHandler = Arc<
+     SyncHandler<
+         Sendable,
+-        MetricsStorage<RedbStorage>,
++        MetricsStorage<CliStorage>,
+         CliConn,
+         CliKeyhivePolicyHandle,
+         CountLeadingZeroBytes,
+@@ -261,7 +261,7 @@ impl Handler<Sendable, CliConn> for CliHandlerOpenPolicy {
+ fn convert_sync_listen_error(
+     err: ListenError<
+         Sendable,
+-        MetricsStorage<RedbStorage>,
++        MetricsStorage<CliStorage>,
+         CliConn,
+         subduction_core::connection::message::SyncMessage,
+     >,
+diff --git a/subduction_cli/src/main.rs b/subduction_cli/src/main.rs
+index cbc8d6e..788ea7e 100644
+--- a/subduction_cli/src/main.rs
++++ b/subduction_cli/src/main.rs
+@@ -13,6 +13,7 @@ mod migrate;
+ mod policy;
+ mod purge;
+ mod server;
++mod storage;
+ mod transport;
+ mod wire;
+ 
+diff --git a/subduction_cli/src/server.rs b/subduction_cli/src/server.rs
+index 77ada8f..daf0535 100644
+--- a/subduction_cli/src/server.rs
++++ b/subduction_cli/src/server.rs
+@@ -33,6 +33,7 @@ use subduction_core::{
+ };
+ use subduction_crypto::{nonce::Nonce, signer::memory::MemorySigner};
+ use subduction_http_longpoll::server::LongPollHandler;
++use subduction_object_storage::ObjectStorage;
+ use subduction_redb_storage::RedbStorage;
+ use subduction_websocket::{
+     DEFAULT_MAX_MESSAGE_SIZE,
+@@ -62,6 +63,7 @@ use crate::{
+     keyhive::{CliConnKeyhiveAdapter, FsKeyhiveStorage, KEYHIVE_DIR},
+     metrics,
+     policy::CliKeyhivePolicyHandle,
++    storage::{CliKeyhiveStorage, CliStorage},
+     transport::UnifiedTransport,
+ };
+ 
+@@ -74,7 +76,7 @@ type CliSubduction<H> = Arc<
+     Subduction<
+         'static,
+         future_form::Sendable,
+-        MetricsStorage<RedbStorage>,
++        MetricsStorage<CliStorage>,
+         CliConn,
+         H,
+         CliKeyhivePolicyHandle,
+@@ -97,6 +99,21 @@ pub(crate) struct ServerArgs {
+     #[arg(short, long)]
+     pub(crate) data_dir: Option<PathBuf>,
+ 
++    /// Keep sedimentree data in an object store instead of the data
++    /// directory: `s3://bucket/prefix` (credentials and endpoint from the
++    /// `AWS_*` environment variables) or `file:///dir`.
++    ///
++    /// Keyhive state goes in the same bucket, so nothing is kept under
++    /// `--data-dir` and several servers can share one bucket.
++    #[arg(long, value_name = "URL", env = "SUBDUCTION_OBJECT_STORE")]
++    pub(crate) object_store: Option<url::Url>,
++
++    /// Serve the files in this directory to plain HTTP `GET` requests on the
++    /// sync port (`/` is `index.html`). WebSocket upgrades and long-poll
++    /// requests are unaffected.
++    #[arg(long, value_name = "DIR")]
++    pub(crate) static_dir: Option<PathBuf>,
++
+     #[command(flatten)]
+     pub(crate) key: key::KeyArgs,
+ 
+@@ -276,6 +293,10 @@ impl ServerArgs {
+     }
+ }
+ 
++/// Where the server publishes its keyhive contact card over plain HTTP, so a
++/// client can learn who to delegate to from the server's URL alone.
++pub(crate) const CONTACT_CARD_PATH: &str = "/.well-known/keyhive/contact-card.json";
++
+ /// Default interval for refreshing storage metrics (1 minute).
+ const DEFAULT_METRICS_REFRESH_SECS: u64 = 60;
+ 
+@@ -299,19 +320,25 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
+ 
+     // Initialize the full keyhive stack: storage, identity, protocol, ingest.
+     let keyhive_signer = key::keyhive_signer_from_seed(&common.seed);
+-    let keyhive_root = common.data_dir.join(KEYHIVE_DIR);
+-    tracing::info!(root = ?keyhive_root, "Initializing keyhive storage");
+-    let fs_keyhive_storage = FsKeyhiveStorage::new(keyhive_root)?;
++    let keyhive_storage = if let Some(object_storage) = &common.object_storage {
++        tracing::info!("Keyhive storage in the object store");
++        CliKeyhiveStorage::Object(object_storage.keyhive())
++    } else {
++        let keyhive_root = common.data_dir.join(KEYHIVE_DIR);
++        tracing::info!(root = ?keyhive_root, "Initializing keyhive storage");
++        CliKeyhiveStorage::Fs(FsKeyhiveStorage::new(keyhive_root)?)
++    };
+ 
+     let (keyhive_instance, kh_peer_id, contact_card) = init_sendable_keyhive(keyhive_signer)
+         .await
+         .map_err(|e| eyre::eyre!(e))?;
+ 
++    let contact_card_json: Arc<str> = serde_json::to_string(&contact_card)?.into();
+     let shared_keyhive = Arc::new(async_lock::Mutex::new(keyhive_instance));
+ 
+     let keyhive_protocol: CliKeyhiveProtocol = Arc::new(subduction_keyhive::KeyhiveProtocol::new(
+         Arc::clone(&shared_keyhive),
+-        fs_keyhive_storage,
++        keyhive_storage,
+         kh_peer_id,
+         contact_card,
+     ));
+@@ -351,6 +378,7 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
+         common,
+         storage_policy,
+         Some(keyhive_protocol),
++        Some(contact_card_json),
+         move |sync, ephemeral| {
+             let keyhive = CliKeyhiveHandler::new(keyhive_for_handler, CliConnKeyhiveAdapter::new);
+             Arc::new(CliHandler::new(sync, ephemeral, keyhive))
+@@ -374,6 +402,7 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
+         common,
+         storage_policy,
+         None,
++        None,
+         |sync, ephemeral| Arc::new(CliHandlerOpenPolicy::new(sync, ephemeral)),
+     )
+     .await
+@@ -385,7 +414,9 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
+ struct SetupCommon {
+     addr: SocketAddr,
+     data_dir: PathBuf,
+-    storage: MetricsStorage<RedbStorage>,
++    storage: MetricsStorage<CliStorage>,
++    /// The bucket, when the server runs on one (keyhive state goes there too).
++    object_storage: Option<ObjectStorage>,
+     seed: [u8; 32],
+     signer: MemorySigner,
+     peer_id: PeerId,
+@@ -414,18 +445,13 @@ impl SetupCommon {
+             );
+         }
+ 
+-        tracing::info!(dir = ?data_dir, "Initializing redb storage");
+-        let redb_storage = RedbStorage::new(data_dir.clone())?;
+-
+-        // Optional localhost admin server for live inspection. Shares the redb
+-        // handle (Arc-cheap clone); queries run as MVCC read txns concurrent
+-        // with the live writer.
+-        if let Some(admin_addr) = args.admin_addr {
+-            crate::admin::start_admin_server(admin_addr, redb_storage.clone(), token.clone())
+-                .await?;
+-        }
++        let backend = open_storage(args, &data_dir, token).await?;
+ 
+-        let storage = MetricsStorage::new(redb_storage);
++        let object_storage = match &backend {
++            CliStorage::Object(object_storage) => Some(object_storage.clone()),
++            CliStorage::Redb(_) => None,
++        };
++        let storage = MetricsStorage::new(backend);
+ 
+         // Background metrics refresh
+         if args.metrics {
+@@ -510,6 +536,7 @@ impl SetupCommon {
+             addr,
+             data_dir,
+             storage,
++            object_storage,
+             seed,
+             signer,
+             peer_id,
+@@ -521,6 +548,36 @@ impl SetupCommon {
+     }
+ }
+ 
++/// Open the sedimentree store: the `--object-store` bucket if one is given,
++/// redb under the data directory otherwise.
++async fn open_storage(
++    args: &ServerArgs,
++    data_dir: &std::path::Path,
++    token: &CancellationToken,
++) -> Result<CliStorage> {
++    if let Some(url) = &args.object_store {
++        eyre::ensure!(
++            args.admin_addr.is_none(),
++            "--admin-addr inspects the redb store and is not available with --object-store"
++        );
++        tracing::info!(scheme = url.scheme(), host = ?url.host_str(), path = url.path(), "Initializing object storage");
++        Ok(CliStorage::Object(ObjectStorage::from_url(url)?))
++    } else {
++        tracing::info!(dir = ?data_dir, "Initializing redb storage");
++        let redb_storage = RedbStorage::new(data_dir)?;
++
++        // Optional localhost admin server for live inspection. Shares the redb
++        // handle (Arc-cheap clone); queries run as MVCC read txns concurrent
++        // with the live writer.
++        if let Some(admin_addr) = args.admin_addr {
++            crate::admin::start_admin_server(admin_addr, redb_storage.clone(), token.clone())
++                .await?;
++        }
++
++        Ok(CliStorage::Redb(redb_storage))
++    }
++}
++
+ /// Build the Subduction instance and run the transport accept loops.
+ ///
+ /// Generic over the composed handler `H`. `keyhive_protocol` is `None` in open
+@@ -533,6 +590,7 @@ async fn serve<H, F>(
+     common: SetupCommon,
+     storage_policy: Arc<CliKeyhivePolicyHandle>,
+     keyhive_protocol: Option<CliKeyhiveProtocol>,
++    contact_card_json: Option<Arc<str>>,
+     make_handler: F,
+ ) -> Result<()>
+ where
+@@ -768,6 +826,7 @@ where
+     let ws_keepalive = KeepAlive::balanced();
+ 
+     let accept_keyhive = keyhive_protocol.clone();
++    let static_dir: Option<Arc<std::path::Path>> = args.static_dir.clone().map(Arc::from);
+     let accept_task = tokio::spawn(async move {
+         accept_loop(
+             tcp_listener,
+@@ -775,6 +834,8 @@ where
+             accept_ephemeral,
+             accept_handler,
+             accept_keyhive,
++            contact_card_json,
++            static_dir,
+             accept_cancel,
+             handshake_max_drift,
+             max_message_size,
+@@ -1045,6 +1106,51 @@ fn publish_disk_usage(data_dir: &std::path::Path) {
+     subduction_core::metrics::set_redb_file_bytes(redb_bytes);
+ }
+ 
++/// How much of a request the accept loop looks at to route it.
++const PEEK_BYTES: usize = 8 * 1024;
++
++/// How long the accept loop waits for a `GET` request's headers to arrive.
++const PEEK_TIMEOUT: Duration = Duration::from_secs(5);
++
++/// Peek at the start of a connection without consuming it.
++///
++/// A `GET` is either a WebSocket upgrade or a plain HTTP request, and only
++/// its headers say which, so for a `GET` this waits until the whole request
++/// head has arrived (or [`PEEK_BYTES`] / [`PEEK_TIMEOUT`] is reached).
++/// `None` when the peer sent fewer than three bytes.
++async fn peek_request_head(tcp: &tokio::net::TcpStream) -> Option<Vec<u8>> {
++    let mut buf = vec![0u8; PEEK_BYTES];
++    let deadline = Instant::now() + PEEK_TIMEOUT;
++    loop {
++        let n = tcp.peek(&mut buf).await.ok()?;
++        if n < 3 {
++            return None;
++        }
++        let head = buf.get(..n)?;
++        let complete = !head.starts_with(b"GET")
++            || n == PEEK_BYTES
++            || head.windows(4).any(|w| w == b"\r\n\r\n");
++        if complete || Instant::now() >= deadline {
++            buf.truncate(n);
++            return Some(buf);
++        }
++        // `peek` returns at once while unread bytes are buffered.
++        time::sleep(Duration::from_millis(5)).await;
++    }
++}
++
++/// Whether a request head carries `Upgrade: websocket`.
++fn is_websocket_upgrade(head: &[u8]) -> bool {
++    head.split(|&b| b == b'\n').any(|line| {
++        let mut parts = line.splitn(2, |&b| b == b':');
++        let (Some(name), Some(value)) = (parts.next(), parts.next()) else {
++            return false;
++        };
++        name.trim_ascii().eq_ignore_ascii_case(b"upgrade")
++            && value.trim_ascii().eq_ignore_ascii_case(b"websocket")
++    })
++}
++
+ /// Accept loop: routes incoming TCP connections to WebSocket or HTTP long-poll.
+ #[allow(clippy::too_many_arguments)]
+ async fn accept_loop<H: CliWireHandler>(
+@@ -1053,6 +1159,8 @@ async fn accept_loop<H: CliWireHandler>(
+     ephemeral: CliEphemeralHandler,
+     lp_handler: LongPollHandler<MemorySigner, FuturesTimerTimeout>,
+     keyhive_proto: Option<CliKeyhiveProtocol>,
++    contact_card_json: Option<Arc<str>>,
++    static_dir: Option<Arc<std::path::Path>>,
+     cancel: CancellationToken,
+     handshake_max_drift: Duration,
+     max_message_size: usize,
+@@ -1080,20 +1188,25 @@ async fn accept_loop<H: CliWireHandler>(
+                         let task_ephemeral = ephemeral.clone();
+                         let task_handler = lp_handler.clone();
+                         let task_keyhive = keyhive_proto.clone();
++                        let task_contact_card = contact_card_json.clone();
++                        let task_static_dir = static_dir.clone();
+                         let task_discovery = discovery_audience;
+ 
+                         conns.spawn(async move {
+                             // Peek to determine transport:
+-                            //   GET  → WebSocket upgrade
++                            //   GET + Upgrade: websocket → WebSocket upgrade
++                            //   GET  → plain HTTP (contact card, static files)
+                             //   POST → HTTP long-poll
+                             //   OPTI → CORS preflight (OPTIONS), routed to HTTP handler
+-                            let mut peek_buf = [0u8; 4];
+-                            match tcp.peek(&mut peek_buf).await {
+-                                Ok(n) if n >= 3 => {}
+-                                Ok(_) | Err(_) => {
+-                                    tracing::warn!(addr = %addr, "failed to peek TCP stream");
+-                                    return;
+-                                }
++                            let Some(peek_buf) = peek_request_head(&tcp).await else {
++                                tracing::warn!(addr = %addr, "failed to peek TCP stream");
++                                return;
++                            };
++
++                            if peek_buf.starts_with(b"GET") && !is_websocket_upgrade(&peek_buf) {
++                                handle_http_get(tcp, addr, task_contact_card, task_static_dir)
++                                    .await;
++                                return;
+                             }
+ 
+                             let is_http = peek_buf.starts_with(b"POST")
+@@ -1131,7 +1244,7 @@ async fn accept_loop<H: CliWireHandler>(
+                             } else {
+                                 tracing::warn!(
+                                     addr = %addr,
+-                                    peek = ?&peek_buf,
++                                    peek = ?peek_buf.get(..4),
+                                     "unknown protocol"
+                                 );
+                             }
+@@ -1399,6 +1512,106 @@ async fn handle_http_longpoll<H: CliWireHandler>(
+     }
+ }
+ 
++/// Answer plain HTTP `GET` requests: the server's keyhive contact card at
++/// [`CONTACT_CARD_PATH`] (the JSON a client hands to keyhive to delegate to
++/// this server; absent when keyhive is disabled), then files from
++/// `--static-dir`. Anything else is a 404.
++async fn handle_http_get(
++    tcp: tokio::net::TcpStream,
++    addr: SocketAddr,
++    contact_card_json: Option<Arc<str>>,
++    static_dir: Option<Arc<std::path::Path>>,
++) {
++    use http_body_util::Full;
++    use hyper::{
++        Request, Response, StatusCode,
++        body::{Bytes, Incoming},
++        header::{ACCESS_CONTROL_ALLOW_ORIGIN, CACHE_CONTROL, CONTENT_TYPE, HeaderValue},
++    };
++
++    let service = hyper::service::service_fn(move |req: Request<Incoming>| {
++        let card = contact_card_json.clone();
++        let static_dir = static_dir.clone();
++        async move {
++            let path = req.uri().path();
++            let found = if path == CONTACT_CARD_PATH {
++                card.map(|json| ("application/json", Bytes::copy_from_slice(json.as_bytes())))
++            } else if let Some(dir) = static_dir {
++                read_static_file(&dir, path).await
++            } else {
++                None
++            };
++
++            let (status, content_type, body) = match found {
++                Some((content_type, body)) => (StatusCode::OK, content_type, body),
++                None => (
++                    StatusCode::NOT_FOUND,
++                    "text/plain",
++                    Bytes::from_static(b"not found"),
++                ),
++            };
++
++            let mut resp = Response::new(Full::new(body));
++            *resp.status_mut() = status;
++            let headers = resp.headers_mut();
++            headers.insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
++            headers.insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
++            headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-cache"));
++            Ok::<_, hyper::Error>(resp)
++        }
++    });
++
++    let builder =
++        hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new());
++    let conn = builder.serve_connection(hyper_util::rt::TokioIo::new(tcp), service);
++
++    if let Err(e) = conn.await {
++        tracing::debug!(addr = %addr, error = %e, "HTTP connection ended");
++    }
++}
++
++/// Read the file a request path names under `dir`, with its content type.
++/// `/` is `index.html`. `None` for a path that is missing, not a regular
++/// file, or that would step outside `dir`.
++async fn read_static_file(
++    dir: &std::path::Path,
++    request_path: &str,
++) -> Option<(&'static str, hyper::body::Bytes)> {
++    let relative = request_path.trim_start_matches('/');
++    let relative = if relative.is_empty() {
++        "index.html"
++    } else {
++        relative
++    };
++    // Only plain names: no `..`, no absolute or empty segments, no dotfiles.
++    if relative
++        .split('/')
++        .any(|part| part.is_empty() || part.starts_with('.') || part.contains('\\'))
++    {
++        return None;
++    }
++
++    let path = dir.join(relative);
++    if !tokio::fs::metadata(&path).await.ok()?.is_file() {
++        return None;
++    }
++    let content_type = match path.extension().and_then(|e| e.to_str()) {
++        Some("html") => "text/html; charset=utf-8",
++        Some("css") => "text/css; charset=utf-8",
++        Some("js") => "text/javascript; charset=utf-8",
++        Some("json") => "application/json",
++        Some("txt") => "text/plain; charset=utf-8",
++        Some("svg") => "image/svg+xml",
++        Some("png") => "image/png",
++        Some("jpg" | "jpeg") => "image/jpeg",
++        Some("ico") => "image/x-icon",
++        Some("woff2") => "font/woff2",
++        _ => "application/octet-stream",
++    };
++    let bytes = tokio::fs::read(&path).await.ok()?;
++    Some((content_type, bytes.into()))
++}
++
+ /// Wrap a connection in a keyhive adapter and register the peer.
+ ///
+ /// No-op when keyhive is disabled (`protocol` is `None`).
+diff --git a/subduction_cli/src/storage.rs b/subduction_cli/src/storage.rs
+new file mode 100644
+index 0000000..3c03952
+--- /dev/null
++++ b/subduction_cli/src/storage.rs
+@@ -0,0 +1,215 @@
++//! The server's storage backends, chosen at startup.
++//!
++//! [`CliStorage`] is either the local [`RedbStorage`] (the default) or an
++//! [`ObjectStorage`] bucket (`--object-store`), and [`CliKeyhiveStorage`]
++//! follows it: files under the data directory, or the same bucket. One
++//! concrete type each keeps the handler and `Subduction` type aliases free of
++//! storage parameters.
++
++use future_form::{FutureForm, Sendable};
++use sedimentree_core::{
++    collections::Set,
++    fragment::Fragment,
++    id::SedimentreeId,
++    loose_commit::{LooseCommit, id::CommitId},
++};
++use subduction_core::storage::traits::Storage;
++use subduction_crypto::verified_meta::VerifiedMeta;
++use subduction_keyhive::storage::{KeyhiveStorage, StorageHash};
++use subduction_object_storage::{ObjectKeyhiveStorage, ObjectStorage, ObjectStorageError};
++use subduction_redb_storage::{RedbStorage, RedbStorageError};
++
++use crate::keyhive::{FsKeyhiveStorage, FsKeyhiveStorageError};
++
++/// The storage backend the server runs on.
++#[derive(Debug, Clone)]
++pub(crate) enum CliStorage {
++    /// redb + blob files under the data directory.
++    Redb(RedbStorage),
++
++    /// An object store bucket.
++    Object(ObjectStorage),
++}
++
++/// Error from whichever backend [`CliStorage`] holds.
++#[derive(Debug, thiserror::Error)]
++pub(crate) enum CliStorageError {
++    #[error(transparent)]
++    Redb(#[from] RedbStorageError),
++
++    #[error(transparent)]
++    Object(#[from] ObjectStorageError),
++}
++
++type Future<'a, T> = <Sendable as FutureForm>::Future<'a, Result<T, CliStorageError>>;
++
++/// Forward a [`Storage`] method to the held backend.
++macro_rules! forward {
++    ($self:ident.$method:ident($($arg:ident),*)) => {
++        Sendable::from_future(async move {
++            match $self {
++                Self::Redb(s) => Ok(Storage::<Sendable>::$method(s, $($arg),*).await?),
++                Self::Object(s) => Ok(Storage::<Sendable>::$method(s, $($arg),*).await?),
++            }
++        })
++    };
++}
++
++impl Storage<Sendable> for CliStorage {
++    type Error = CliStorageError;
++
++    fn save_sedimentree_id(&self, id: SedimentreeId) -> Future<'_, ()> {
++        forward!(self.save_sedimentree_id(id))
++    }
++
++    fn delete_sedimentree_id(&self, id: SedimentreeId) -> Future<'_, ()> {
++        forward!(self.delete_sedimentree_id(id))
++    }
++
++    fn load_all_sedimentree_ids(&self) -> Future<'_, Set<SedimentreeId>> {
++        forward!(self.load_all_sedimentree_ids())
++    }
++
++    fn contains_sedimentree_id(&self, id: SedimentreeId) -> Future<'_, bool> {
++        forward!(self.contains_sedimentree_id(id))
++    }
++
++    fn save_loose_commit(
++        &self,
++        id: SedimentreeId,
++        verified: VerifiedMeta<LooseCommit>,
++    ) -> Future<'_, ()> {
++        forward!(self.save_loose_commit(id, verified))
++    }
++
++    fn list_commit_ids(&self, id: SedimentreeId) -> Future<'_, Set<CommitId>> {
++        forward!(self.list_commit_ids(id))
++    }
++
++    fn load_loose_commits(&self, id: SedimentreeId) -> Future<'_, Vec<VerifiedMeta<LooseCommit>>> {
++        forward!(self.load_loose_commits(id))
++    }
++
++    fn load_loose_commit_metas(&self, id: SedimentreeId) -> Future<'_, Vec<LooseCommit>> {
++        forward!(self.load_loose_commit_metas(id))
++    }
++
++    fn load_loose_commit(
++        &self,
++        id: SedimentreeId,
++        commit_id: CommitId,
++    ) -> Future<'_, Option<VerifiedMeta<LooseCommit>>> {
++        forward!(self.load_loose_commit(id, commit_id))
++    }
++
++    fn delete_loose_commit(&self, id: SedimentreeId, commit_id: CommitId) -> Future<'_, ()> {
++        forward!(self.delete_loose_commit(id, commit_id))
++    }
++
++    fn delete_loose_commits(&self, id: SedimentreeId) -> Future<'_, ()> {
++        forward!(self.delete_loose_commits(id))
++    }
++
++    fn save_fragment(&self, id: SedimentreeId, verified: VerifiedMeta<Fragment>) -> Future<'_, ()> {
++        forward!(self.save_fragment(id, verified))
++    }
++
++    fn load_fragment(
++        &self,
++        id: SedimentreeId,
++        fragment_head: CommitId,
++    ) -> Future<'_, Option<VerifiedMeta<Fragment>>> {
++        forward!(self.load_fragment(id, fragment_head))
++    }
++
++    fn list_fragment_ids(&self, id: SedimentreeId) -> Future<'_, Set<CommitId>> {
++        forward!(self.list_fragment_ids(id))
++    }
++
++    fn load_fragments(&self, id: SedimentreeId) -> Future<'_, Vec<VerifiedMeta<Fragment>>> {
++        forward!(self.load_fragments(id))
++    }
++
++    fn load_fragment_metas(&self, id: SedimentreeId) -> Future<'_, Vec<Fragment>> {
++        forward!(self.load_fragment_metas(id))
++    }
++
++    fn delete_fragment(&self, id: SedimentreeId, fragment_head: CommitId) -> Future<'_, ()> {
++        forward!(self.delete_fragment(id, fragment_head))
++    }
++
++    fn delete_fragments(&self, id: SedimentreeId) -> Future<'_, ()> {
++        forward!(self.delete_fragments(id))
++    }
++
++    fn save_batch(
++        &self,
++        id: SedimentreeId,
++        commits: Vec<VerifiedMeta<LooseCommit>>,
++        fragments: Vec<VerifiedMeta<Fragment>>,
++    ) -> Future<'_, usize> {
++        forward!(self.save_batch(id, commits, fragments))
++    }
++}
++
++/// Where the server keeps its keyhive state.
++#[derive(Debug, Clone)]
++pub(crate) enum CliKeyhiveStorage {
++    /// Files under the data directory.
++    Fs(FsKeyhiveStorage),
++
++    /// The object store bucket the sedimentree data is in.
++    Object(ObjectKeyhiveStorage),
++}
++
++/// Error from whichever backend [`CliKeyhiveStorage`] holds.
++#[derive(Debug, thiserror::Error)]
++pub(crate) enum CliKeyhiveStorageError {
++    #[error(transparent)]
++    Fs(#[from] FsKeyhiveStorageError),
++
++    #[error(transparent)]
++    Object(#[from] ObjectStorageError),
++}
++
++type KeyhiveFuture<'a, T> = <Sendable as FutureForm>::Future<'a, Result<T, CliKeyhiveStorageError>>;
++
++/// Forward a [`KeyhiveStorage`] method to the held backend.
++macro_rules! forward_keyhive {
++    ($self:ident.$method:ident($($arg:ident),*)) => {
++        Sendable::from_future(async move {
++            match $self {
++                Self::Fs(s) => Ok(KeyhiveStorage::<Sendable>::$method(s, $($arg),*).await?),
++                Self::Object(s) => Ok(KeyhiveStorage::<Sendable>::$method(s, $($arg),*).await?),
++            }
++        })
++    };
++}
++
++impl KeyhiveStorage<Sendable> for CliKeyhiveStorage {
++    type Error = CliKeyhiveStorageError;
++
++    fn save_archive(&self, hash: StorageHash, data: Vec<u8>) -> KeyhiveFuture<'_, ()> {
++        forward_keyhive!(self.save_archive(hash, data))
++    }
++
++    fn load_archives(&self) -> KeyhiveFuture<'_, Vec<(StorageHash, Vec<u8>)>> {
++        forward_keyhive!(self.load_archives())
++    }
++
++    fn delete_archive(&self, hash: StorageHash) -> KeyhiveFuture<'_, ()> {
++        forward_keyhive!(self.delete_archive(hash))
++    }
++
++    fn save_event(&self, hash: StorageHash, data: Vec<u8>) -> KeyhiveFuture<'_, ()> {
++        forward_keyhive!(self.save_event(hash, data))
++    }
++
++    fn load_events(&self) -> KeyhiveFuture<'_, Vec<(StorageHash, Vec<u8>)>> {
++        forward_keyhive!(self.load_events())
++    }
++
++    fn delete_event(&self, hash: StorageHash) -> KeyhiveFuture<'_, ()> {
++        forward_keyhive!(self.delete_event(hash))
++    }
++}
+diff --git a/subduction_cli/tests/http.rs b/subduction_cli/tests/http.rs
+new file mode 100644
+index 0000000..e14bc7e
+--- /dev/null
++++ b/subduction_cli/tests/http.rs
+@@ -0,0 +1,213 @@
++//! Plain HTTP on the sync port: the keyhive contact card at
++//! `/.well-known/keyhive/contact-card.json` and files from `--static-dir`,
++//! beside the sync transports.
++
++#![allow(
++    clippy::expect_used,
++    clippy::panic,
++    clippy::unwrap_used,
++    missing_docs,
++    unreachable_pub
++)]
++
++use std::{
++    io::{Read, Write},
++    net::TcpStream,
++    process::{Child, Command, Stdio},
++    time::Duration,
++};
++
++const SERVER_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
++const CONTACT_CARD_PATH: &str = "/.well-known/keyhive/contact-card.json";
++
++struct Server {
++    child: Child,
++    port: u16,
++    _dir: tempfile::TempDir,
++}
++
++impl Drop for Server {
++    fn drop(&mut self) {
++        drop(self.child.kill());
++        drop(self.child.wait());
++    }
++}
++
++impl Server {
++    fn url(&self, path: &str) -> String {
++        format!("http://127.0.0.1:{}{path}", self.port)
++    }
++}
++
++/// Spawn a server on an OS-assigned port and wait for its ready file.
++async fn spawn_server(auth: &str, key_seed: &str, extra: &[&str]) -> Server {
++    let dir = tempfile::tempdir().expect("tempdir");
++    let ready_file = dir.path().join("ready");
++    let child = Command::new(env!("CARGO_BIN_EXE_subduction_cli"))
++        .arg("server")
++        .args(["--socket", "127.0.0.1:0"])
++        .args(["--key-seed", key_seed])
++        .args(["--auth", auth])
++        .arg("--data-dir")
++        .arg(dir.path().join("data"))
++        .arg("--ready-file")
++        .arg(&ready_file)
++        .args(extra)
++        .stderr(Stdio::inherit())
++        .stdout(Stdio::null())
++        .spawn()
++        .expect("failed to spawn server");
++    let mut server = Server {
++        child,
++        port: 0,
++        _dir: dir,
++    };
++
++    let deadline = tokio::time::Instant::now() + SERVER_STARTUP_TIMEOUT;
++    loop {
++        assert!(
++            tokio::time::Instant::now() <= deadline,
++            "timed out waiting for ready file at {}",
++            ready_file.display()
++        );
++        if let Ok(content) = std::fs::read_to_string(&ready_file)
++            && let Some(port) = content.lines().find_map(|l| l.strip_prefix("port="))
++        {
++            server.port = port.parse().expect("ready file port should be a u16");
++            return server;
++        }
++        tokio::time::sleep(Duration::from_millis(50)).await;
++    }
++}
++
++#[tokio::test]
++async fn keyhive_server_publishes_its_contact_card() {
++    let seed = "11".repeat(32);
++    let server = spawn_server("keyhive", &seed, &[]).await;
++
++    let resp = reqwest::get(server.url(CONTACT_CARD_PATH)).await.unwrap();
++    assert_eq!(resp.status(), 200);
++    assert_eq!(resp.headers()["content-type"], "application/json");
++    assert_eq!(resp.headers()["access-control-allow-origin"], "*");
++    let body = resp.text().await.unwrap();
++
++    let card: keyhive_core::contact_card::ContactCard =
++        serde_json::from_str(&body).expect("the body must parse as a keyhive contact card");
++    let again = serde_json::to_string(&card).unwrap();
++    assert_eq!(
++        again, body,
++        "the card round-trips through keyhive's own type"
++    );
++
++    // A query string still reaches the card; a longer path does not.
++    let resp = reqwest::get(server.url(&format!("{CONTACT_CARD_PATH}?x=1")))
++        .await
++        .unwrap();
++    assert_eq!(resp.status(), 200);
++    let resp = reqwest::get(server.url(&format!("{CONTACT_CARD_PATH}.bak")))
++        .await
++        .unwrap();
++    assert_eq!(resp.status(), 404);
++
++    // The same key gives the same identity after a restart.
++    let issuer = |body: &str| -> serde_json::Value {
++        let value: serde_json::Value = serde_json::from_str(body).unwrap();
++        value
++            .as_object()
++            .and_then(|o| o.values().next())
++            .and_then(|op| op.get("issuer"))
++            .cloned()
++            .expect("a contact card names its issuer")
++    };
++    drop(server);
++    let restarted = spawn_server("keyhive", &seed, &[]).await;
++    let body_again = reqwest::get(restarted.url(CONTACT_CARD_PATH))
++        .await
++        .unwrap()
++        .text()
++        .await
++        .unwrap();
++    assert_eq!(issuer(&body_again), issuer(&body));
++}
++
++#[tokio::test]
++async fn open_server_has_no_contact_card() {
++    let server = spawn_server("open", &"22".repeat(32), &[]).await;
++    let resp = reqwest::get(server.url(CONTACT_CARD_PATH)).await.unwrap();
++    assert_eq!(resp.status(), 404);
++}
++
++/// Send raw bytes and read the whole response, for requests an HTTP client
++/// would normalise away.
++fn raw_request(port: u16, request: &str) -> String {
++    let mut tcp = TcpStream::connect(("127.0.0.1", port)).unwrap();
++    tcp.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
++    tcp.write_all(request.as_bytes()).unwrap();
++    let mut response = String::new();
++    drop(tcp.read_to_string(&mut response));
++    response
++}
++
++#[tokio::test]
++async fn static_dir_is_served_to_plain_gets() {
++    let site = tempfile::tempdir().unwrap();
++    std::fs::write(site.path().join("index.html"), "<h1>hello starlight</h1>").unwrap();
++    std::fs::write(site.path().join("font.woff2"), [0u8, 1, 2, 3]).unwrap();
++    std::fs::write(site.path().join(".env"), "SECRET=1").unwrap();
++    std::fs::create_dir(site.path().join("sub")).unwrap();
++    let outside = site.path().parent().unwrap().join("outside-static-dir.txt");
++    std::fs::write(&outside, "outside").unwrap();
++
++    let server = spawn_server(
++        "open",
++        &"33".repeat(32),
++        &["--static-dir", site.path().to_str().unwrap()],
++    )
++    .await;
++
++    let resp = reqwest::get(server.url("/")).await.unwrap();
++    assert_eq!(resp.status(), 200);
++    assert_eq!(resp.headers()["content-type"], "text/html; charset=utf-8");
++    assert_eq!(resp.text().await.unwrap(), "<h1>hello starlight</h1>");
++
++    let resp = reqwest::get(server.url("/font.woff2")).await.unwrap();
++    assert_eq!(resp.status(), 200);
++    assert_eq!(resp.headers()["content-type"], "font/woff2");
++    assert_eq!(resp.bytes().await.unwrap().as_ref(), [0u8, 1, 2, 3]);
++
++    for missing in ["/nope.html", "/sub", "/.env"] {
++        let resp = reqwest::get(server.url(missing)).await.unwrap();
++        assert_eq!(resp.status(), 404, "{missing}");
++    }
++
++    // A path that climbs out of the directory is refused.
++    let response = raw_request(
++        server.port,
++        "GET /../outside-static-dir.txt HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
++    );
++    assert!(response.starts_with("HTTP/1.1 404"), "{response}");
++    assert!(!response.contains("outside"));
++    std::fs::remove_file(outside).unwrap();
++
++    // A request head that arrives in pieces is still routed as plain HTTP.
++    let mut tcp = TcpStream::connect(("127.0.0.1", server.port)).unwrap();
++    tcp.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
++    tcp.write_all(b"GET / HTTP/1.1\r\nHost: x\r\n").unwrap();
++    tcp.flush().unwrap();
++    std::thread::sleep(Duration::from_millis(200));
++    tcp.write_all(b"Connection: close\r\n\r\n").unwrap();
++    let mut response = String::new();
++    drop(tcp.read_to_string(&mut response));
++    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
++
++    // The contact card path is not a file lookup: keyhive is off here.
++    let resp = reqwest::get(server.url(CONTACT_CARD_PATH)).await.unwrap();
++    assert_eq!(resp.status(), 404);
++}
++
++#[tokio::test]
++async fn plain_get_without_static_dir_is_not_found() {
++    let server = spawn_server("open", &"44".repeat(32), &[]).await;
++    let resp = reqwest::get(server.url("/")).await.unwrap();
++    assert_eq!(resp.status(), 404);
++}
