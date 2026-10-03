@@ -13,7 +13,9 @@ let storage = ObjectStorage::from_url(&"s3://my-bucket/sync".parse()?)?;
 
 `s3://` URLs take credentials and endpoint from the `AWS_*` environment
 variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`,
-`AWS_ENDPOINT_URL`).
+`AWS_ENDPOINT_URL`). For a service that wants virtual-hosted requests, set
+`AWS_VIRTUAL_HOSTED_STYLE_REQUEST=true` and give its base endpoint; the bucket
+is put in front of the host.
 
 ## Layout
 
