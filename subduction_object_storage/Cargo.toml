@@ -1,6 +1,6 @@
 [package]
 name = "subduction_object_storage"
-version = "0.1.0"
+version = "0.1.2"
 description = "Object storage (S3-compatible) backend for Sedimentree"
 categories = ["database"]
 keywords = ["sedimentree", "subduction", "storage", "s3"]

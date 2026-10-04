@@ -40,9 +40,17 @@ impl ObjectStorage {
     /// Keyhive storage in the same store, under `{prefix}/keyhive`.
     #[must_use]
     pub fn keyhive(&self) -> ObjectKeyhiveStorage {
+        self.keyhive_in(KEYHIVE_DIR)
+    }
+
+    /// Keyhive storage in the same store, under `{prefix}/{dir}`. Keyhive
+    /// versions that can't read each other's events (`keyhive_core` 0.5 and
+    /// 0.6) need separate directories.
+    #[must_use]
+    pub fn keyhive_in(&self, dir: &str) -> ObjectKeyhiveStorage {
         ObjectKeyhiveStorage {
             store: Arc::clone(&self.store),
-            prefix: self.prefix.clone().join(KEYHIVE_DIR),
+            prefix: self.prefix.clone().join(dir),
             concurrency: self.concurrency,
         }
     }

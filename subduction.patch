@@ -1,5 +1,5 @@
 diff --git a/Cargo.lock b/Cargo.lock
-index e61779f..c4c84d0 100644
+index 04c1963..8d4d488 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
 @@ -263,7 +263,7 @@ version = "0.30.1"
@@ -234,7 +234,7 @@ index e61779f..c4c84d0 100644
   "bolero",
   "future_form",
   "futures",
-@@ -5567,7 +5651,7 @@ version = "0.8.2"
+@@ -5567,7 +5651,7 @@ version = "0.9.0"
  dependencies = [
   "async-channel",
   "async-lock",
@@ -249,7 +249,7 @@ index e61779f..c4c84d0 100644
  
 +[[package]]
 +name = "subduction_object_storage"
-+version = "0.1.0"
++version = "0.1.2"
 +dependencies = [
 + "future_form",
 + "futures",
@@ -298,7 +298,7 @@ index e61779f..c4c84d0 100644
   "h2",
   "http",
 diff --git a/Cargo.toml b/Cargo.toml
-index 9bc064a..b42be15 100644
+index 800b2ff..86a66e8 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -14,6 +14,7 @@ members = [
@@ -312,10 +312,10 @@ index 9bc064a..b42be15 100644
 @@ -43,6 +44,7 @@ subduction_http_longpoll = { version = "0.11.2", path = "subduction_http_longpol
  subduction_hyper = { version = "0.1.0", path = "subduction_hyper", default-features = false }
  subduction_iroh = { version = "0.10.2", path = "subduction_iroh" }
- subduction_keyhive = { version = "0.8.2", path = "subduction_keyhive" }
-+subduction_object_storage = { version = "0.1.0", path = "subduction_object_storage", default-features = false }
+ subduction_keyhive = { version = "0.9.0", path = "subduction_keyhive" }
++subduction_object_storage = { version = "0.1.2", path = "subduction_object_storage", default-features = false }
  subduction_redb_storage = { version = "0.2.2", path = "subduction_redb_storage" }
- subduction_wasm = { version = "0.21.2", path = "subduction_wasm" }
+ subduction_wasm = { version = "0.23.0", path = "subduction_wasm" }
  subduction_wasm_bootstrap = { version = "0.3.2", path = "subduction_wasm_bootstrap" }
 @@ -137,6 +139,14 @@ wasm-tracing = { version = "3.0.0-alpha.0", git = "https://github.com/dsgallups/
  wasm_refgen = "0.2.0" # no_std by default
@@ -333,7 +333,7 @@ index 9bc064a..b42be15 100644
  future_incompatible = { level = "warn", priority = -1 }
  let_underscore = { level = "warn", priority = -1 }
 diff --git a/subduction_cli/Cargo.toml b/subduction_cli/Cargo.toml
-index ea43f87..45dc170 100644
+index 8d36eee..863a060 100644
 --- a/subduction_cli/Cargo.toml
 +++ b/subduction_cli/Cargo.toml
 @@ -43,12 +43,14 @@ metrics-util = { workspace = true }
@@ -479,7 +479,7 @@ index cbc8d6e..788ea7e 100644
  mod wire;
  
 diff --git a/subduction_cli/src/server.rs b/subduction_cli/src/server.rs
-index 77ada8f..853890c 100644
+index 77ada8f..2fafbc9 100644
 --- a/subduction_cli/src/server.rs
 +++ b/subduction_cli/src/server.rs
 @@ -33,6 +33,7 @@ use subduction_core::{
@@ -543,7 +543,7 @@ index 77ada8f..853890c 100644
  /// Default interval for refreshing storage metrics (1 minute).
  const DEFAULT_METRICS_REFRESH_SECS: u64 = 60;
  
-@@ -299,19 +323,25 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
+@@ -299,19 +323,27 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
  
      // Initialize the full keyhive stack: storage, identity, protocol, ingest.
      let keyhive_signer = key::keyhive_signer_from_seed(&common.seed);
@@ -552,7 +552,9 @@ index 77ada8f..853890c 100644
 -    let fs_keyhive_storage = FsKeyhiveStorage::new(keyhive_root)?;
 +    let keyhive_storage = if let Some(object_storage) = &common.object_storage {
 +        tracing::info!("Keyhive storage in the object store");
-+        CliKeyhiveStorage::Object(object_storage.keyhive())
++        // keyhive_core 0.6 can't read the 0.5 events kept in `keyhive/`, so it
++        // starts its own directory
++        CliKeyhiveStorage::Object(object_storage.keyhive_in("keyhive-0.6"))
 +    } else {
 +        let keyhive_root = common.data_dir.join(KEYHIVE_DIR);
 +        tracing::info!(root = ?keyhive_root, "Initializing keyhive storage");
@@ -573,7 +575,7 @@ index 77ada8f..853890c 100644
          kh_peer_id,
          contact_card,
      ));
-@@ -351,6 +381,7 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
+@@ -351,6 +383,7 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
          common,
          storage_policy,
          Some(keyhive_protocol),
@@ -581,7 +583,7 @@ index 77ada8f..853890c 100644
          move |sync, ephemeral| {
              let keyhive = CliKeyhiveHandler::new(keyhive_for_handler, CliConnKeyhiveAdapter::new);
              Arc::new(CliHandler::new(sync, ephemeral, keyhive))
-@@ -374,6 +405,7 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
+@@ -374,6 +407,7 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
          common,
          storage_policy,
          None,
@@ -589,7 +591,7 @@ index 77ada8f..853890c 100644
          |sync, ephemeral| Arc::new(CliHandlerOpenPolicy::new(sync, ephemeral)),
      )
      .await
-@@ -385,7 +417,9 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
+@@ -385,7 +419,9 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
  struct SetupCommon {
      addr: SocketAddr,
      data_dir: PathBuf,
@@ -600,7 +602,7 @@ index 77ada8f..853890c 100644
      seed: [u8; 32],
      signer: MemorySigner,
      peer_id: PeerId,
-@@ -414,18 +448,13 @@ impl SetupCommon {
+@@ -414,18 +450,13 @@ impl SetupCommon {
              );
          }
  
@@ -625,7 +627,7 @@ index 77ada8f..853890c 100644
  
          // Background metrics refresh
          if args.metrics {
-@@ -510,6 +539,7 @@ impl SetupCommon {
+@@ -510,6 +541,7 @@ impl SetupCommon {
              addr,
              data_dir,
              storage,
@@ -633,7 +635,7 @@ index 77ada8f..853890c 100644
              seed,
              signer,
              peer_id,
-@@ -521,6 +551,36 @@ impl SetupCommon {
+@@ -521,6 +553,36 @@ impl SetupCommon {
      }
  }
  
@@ -670,7 +672,7 @@ index 77ada8f..853890c 100644
  /// Build the Subduction instance and run the transport accept loops.
  ///
  /// Generic over the composed handler `H`. `keyhive_protocol` is `None` in open
-@@ -533,6 +593,7 @@ async fn serve<H, F>(
+@@ -533,6 +595,7 @@ async fn serve<H, F>(
      common: SetupCommon,
      storage_policy: Arc<CliKeyhivePolicyHandle>,
      keyhive_protocol: Option<CliKeyhiveProtocol>,
@@ -678,7 +680,7 @@ index 77ada8f..853890c 100644
      make_handler: F,
  ) -> Result<()>
  where
-@@ -768,6 +829,7 @@ where
+@@ -768,6 +831,7 @@ where
      let ws_keepalive = KeepAlive::balanced();
  
      let accept_keyhive = keyhive_protocol.clone();
@@ -686,7 +688,7 @@ index 77ada8f..853890c 100644
      let accept_task = tokio::spawn(async move {
          accept_loop(
              tcp_listener,
-@@ -775,6 +837,8 @@ where
+@@ -775,6 +839,8 @@ where
              accept_ephemeral,
              accept_handler,
              accept_keyhive,
@@ -695,7 +697,7 @@ index 77ada8f..853890c 100644
              accept_cancel,
              handshake_max_drift,
              max_message_size,
-@@ -1045,6 +1109,51 @@ fn publish_disk_usage(data_dir: &std::path::Path) {
+@@ -1045,6 +1111,51 @@ fn publish_disk_usage(data_dir: &std::path::Path) {
      subduction_core::metrics::set_redb_file_bytes(redb_bytes);
  }
  
@@ -747,7 +749,7 @@ index 77ada8f..853890c 100644
  /// Accept loop: routes incoming TCP connections to WebSocket or HTTP long-poll.
  #[allow(clippy::too_many_arguments)]
  async fn accept_loop<H: CliWireHandler>(
-@@ -1053,6 +1162,8 @@ async fn accept_loop<H: CliWireHandler>(
+@@ -1053,6 +1164,8 @@ async fn accept_loop<H: CliWireHandler>(
      ephemeral: CliEphemeralHandler,
      lp_handler: LongPollHandler<MemorySigner, FuturesTimerTimeout>,
      keyhive_proto: Option<CliKeyhiveProtocol>,
@@ -756,7 +758,7 @@ index 77ada8f..853890c 100644
      cancel: CancellationToken,
      handshake_max_drift: Duration,
      max_message_size: usize,
-@@ -1080,20 +1191,25 @@ async fn accept_loop<H: CliWireHandler>(
+@@ -1080,20 +1193,25 @@ async fn accept_loop<H: CliWireHandler>(
                          let task_ephemeral = ephemeral.clone();
                          let task_handler = lp_handler.clone();
                          let task_keyhive = keyhive_proto.clone();
@@ -790,7 +792,7 @@ index 77ada8f..853890c 100644
                              }
  
                              let is_http = peek_buf.starts_with(b"POST")
-@@ -1131,7 +1247,7 @@ async fn accept_loop<H: CliWireHandler>(
+@@ -1131,7 +1249,7 @@ async fn accept_loop<H: CliWireHandler>(
                              } else {
                                  tracing::warn!(
                                      addr = %addr,
@@ -799,7 +801,7 @@ index 77ada8f..853890c 100644
                                      "unknown protocol"
                                  );
                              }
-@@ -1399,6 +1515,114 @@ async fn handle_http_longpoll<H: CliWireHandler>(
+@@ -1399,6 +1517,114 @@ async fn handle_http_longpoll<H: CliWireHandler>(
      }
  }
  

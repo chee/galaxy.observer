@@ -81,3 +81,22 @@ async fn archives_and_events_roundtrip() -> testresult::TestResult {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn keyhive_directories_are_separate() -> testresult::TestResult {
+    let store = Arc::new(InMemory::new());
+    let storage = ObjectStorage::new(store, Path::from("sync"));
+    let hash = StorageHash::new([5; 32]);
+    KeyhiveStorage::<Sendable>::save_event(&storage.keyhive(), hash, vec![1]).await?;
+    KeyhiveStorage::<Sendable>::save_event(&storage.keyhive_in("keyhive-0.6"), hash, vec![2])
+        .await?;
+    assert_eq!(
+        KeyhiveStorage::<Sendable>::load_events(&storage.keyhive()).await?,
+        vec![(hash, vec![1])]
+    );
+    assert_eq!(
+        KeyhiveStorage::<Sendable>::load_events(&storage.keyhive_in("keyhive-0.6")).await?,
+        vec![(hash, vec![2])]
+    );
+    Ok(())
+}
