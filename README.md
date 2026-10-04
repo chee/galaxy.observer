@@ -12,7 +12,7 @@ homepage in `public/`.
 | `subduction.patch` | Changes to upstream's `subduction_cli` server, against the commit pinned in the `Dockerfile`. |
 | `public/` | The homepage. |
 | `migrate/` | One-off job that copied the old automerge-repo server's Postgres storage (starlight, now deleted) into this server, keeping document IDs. It patches upstream's ingest tool to wait until the server confirms each document. |
-| `subduction.rev` | The upstream commit the patch is made against. It is the last one before upstream moved to `keyhive_core` 0.6, which current JS keyhive clients (`@keyhive/keyhive` 0.1.0-alpha.8) can't talk to yet. |
+| `subduction.rev` | The upstream commit the patch is made against (upstream's latest as of 2026-09-30, `keyhive_core` 0.6, which talks to `automerge-repo-keyhive` 0.6 clients). |
 | `.github/workflows/image.yml`, `Dockerfile.runtime` | On every push to `subduction`: build the server once and publish `ghcr.io/chee/galaxy.observer`. Deploys pull that image. |
 | `Dockerfile`, `start.sh` | The same build from source in one Dockerfile, and the start script both images run. |
 

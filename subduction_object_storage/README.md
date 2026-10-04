@@ -42,7 +42,9 @@ separate objects, which metadata-only hydration never downloads.
 ## Keyhive
 
 With the `keyhive` feature, `storage.keyhive()` is a `KeyhiveStorage` in the
-same bucket under `{prefix}/keyhive/`. Events are content-addressed, so servers
+same bucket under `{prefix}/keyhive/`; `storage.keyhive_in(dir)` puts it under
+`{prefix}/{dir}/` instead, for keyhive versions that can't read each other's
+events. Events are content-addressed, so servers
 sharing a bucket add to one set. An archive is keyed by its owner's identity,
 so servers that share a key overwrite each other's snapshot; give servers that
 run side by side their own keys.
