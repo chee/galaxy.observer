@@ -1,8 +1,54 @@
 diff --git a/Cargo.lock b/Cargo.lock
-index 04c1963..8d4d488 100644
+index 04c1963..675f329 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
-@@ -263,7 +263,7 @@ version = "0.30.1"
+@@ -184,6 +184,45 @@ version = "0.7.8"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
+ 
++[[package]]
++name = "asn1-rs"
++version = "0.7.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b7f43a50ac4fdca5df8e885c21b835997f0a1cdee65494a6847694a98652d9d8"
++dependencies = [
++ "asn1-rs-derive",
++ "asn1-rs-impl",
++ "displaydoc",
++ "nom 7.1.3",
++ "num-traits",
++ "rusticata-macros",
++ "thiserror 2.0.20",
++ "time",
++]
++
++[[package]]
++name = "asn1-rs-derive"
++version = "0.6.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "3109e49b1e4909e9db6515a30c633684d68cdeaa252f215214cb4fa1a5bfee2c"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn 2.0.119",
++ "synstructure",
++]
++
++[[package]]
++name = "asn1-rs-impl"
++version = "0.2.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7b18050c2cd6fe86c3a76584ef5e0baf286d038cda203eb6223df2cc413565f7"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn 2.0.119",
++]
++
+ [[package]]
+ name = "async-channel"
+ version = "2.5.0"
+@@ -263,7 +302,7 @@ version = "0.30.1"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "16e2cdb6d5ed835199484bb92bb8b3edd526effe995c61732580439c1a67e2e9"
  dependencies = [
@@ -11,7 +57,7 @@ index 04c1963..8d4d488 100644
   "http",
   "log",
   "url",
-@@ -464,6 +464,12 @@ version = "0.22.1"
+@@ -464,6 +503,12 @@ version = "0.22.1"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
  
@@ -24,7 +70,32 @@ index 04c1963..8d4d488 100644
  [[package]]
  name = "base64ct"
  version = "1.8.3"
-@@ -1103,6 +1109,16 @@ dependencies = [
+@@ -525,6 +570,15 @@ dependencies = [
+  "syn 2.0.119",
+ ]
+ 
++[[package]]
++name = "bit-vec"
++version = "0.9.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b71798fca2c1fe1086445a7258a4bc81e6e49dcd24c8d0dd9a1e57395b603f51"
++dependencies = [
++ "serde",
++]
++
+ [[package]]
+ name = "bitflags"
+ version = "1.3.2"
+@@ -637,7 +691,7 @@ version = "0.13.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "9a21a3b022507b9edd2050caf370d945e398c1a7c8455531220fa3968c45d29e"
+ dependencies = [
+- "proc-macro-crate 2.0.2",
++ "proc-macro-crate",
+  "proc-macro2",
+  "quote",
+  "syn 2.0.119",
+@@ -1103,6 +1157,16 @@ dependencies = [
   "libc",
  ]
  
@@ -41,16 +112,62 @@ index 04c1963..8d4d488 100644
  [[package]]
  name = "crc32fast"
  version = "1.5.1"
-@@ -1302,7 +1318,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
- checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
- dependencies = [
-  "data-encoding",
-- "syn 1.0.109",
-+ "syn 3.0.4",
+@@ -1279,6 +1343,20 @@ dependencies = [
+  "syn 2.0.119",
  ]
  
++[[package]]
++name = "dashmap"
++version = "6.2.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e6361d5c062261c78a176addb82d4c821ae42bed6089de0e12603cd25de2059c"
++dependencies = [
++ "cfg-if",
++ "crossbeam-utils",
++ "hashbrown 0.14.5",
++ "lock_api",
++ "once_cell",
++ "parking_lot_core",
++]
++
  [[package]]
-@@ -2089,7 +2105,7 @@ version = "7.6.0"
+ name = "data-encoding"
+ version = "2.11.1"
+@@ -1335,6 +1413,20 @@ dependencies = [
+  "zeroize",
+ ]
+ 
++[[package]]
++name = "der-parser"
++version = "10.0.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "07da5016415d5a3c4dd39b11ed26f915f52fc4e0dc197d87908bc916e51bc1a6"
++dependencies = [
++ "asn1-rs",
++ "displaydoc",
++ "nom 7.1.3",
++ "num-bigint",
++ "num-traits",
++ "rusticata-macros",
++]
++
+ [[package]]
+ name = "deranged"
+ version = "0.5.8"
+@@ -2063,6 +2155,12 @@ version = "0.1.13"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "7040a10f52cba493ddb09926e15d10a9d8a28043708a405931fe4c6f19fac064"
+ 
++[[package]]
++name = "hashbrown"
++version = "0.14.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
++
+ [[package]]
+ name = "hashbrown"
+ version = "0.16.1"
+@@ -2089,7 +2187,7 @@ version = "7.6.0"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "f49d1053f4708f0af3cf9fc5bffc7e68a914a3c45becb231c80068c9c3f78bea"
  dependencies = [
@@ -59,7 +176,7 @@ index 04c1963..8d4d488 100644
   "byteorder",
   "flate2",
   "nom 8.0.0",
-@@ -2335,7 +2351,7 @@ version = "0.1.20"
+@@ -2335,7 +2433,7 @@ version = "0.1.20"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "96547c2556ec9d12fb1578c4eaf448b04993e7fb79cbaad930a656880a6bdfa0"
  dependencies = [
@@ -68,7 +185,66 @@ index 04c1963..8d4d488 100644
   "bytes",
   "futures-channel",
   "futures-util",
-@@ -3089,6 +3105,16 @@ version = "0.8.4"
+@@ -2671,12 +2769,20 @@ version = "1.0.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "291065721ad7c477b972e581bbc528df031dc8eb5e39fe1ff3300ae5dfb157ef"
+ dependencies = [
++ "http-body-util",
++ "hyper",
++ "hyper-util",
+  "iroh-metrics-derive",
+  "itoa",
+  "n0-error",
+  "portable-atomic",
++ "reqwest 0.13.4",
++ "rustls",
++ "rustls-platform-verifier",
+  "ryu",
+  "serde",
++ "tokio",
++ "tokio-util",
+  "tracing",
+ ]
+ 
+@@ -2701,6 +2807,8 @@ dependencies = [
+  "blake3",
+  "bytes",
+  "cfg_aliases",
++ "clap",
++ "dashmap",
+  "data-encoding",
+  "derive_more 2.1.1",
+  "getrandom 0.4.3",
+@@ -2721,17 +2829,28 @@ dependencies = [
+  "pin-project",
+  "postcard",
+  "rand 0.10.2",
++ "rcgen",
++ "reloadable-state",
+  "reqwest 0.13.4",
+  "rustls",
++ "rustls-cert-file-reader",
++ "rustls-cert-reloadable-resolver",
+  "rustls-pki-types",
+  "serde",
+  "serde_bytes",
++ "serde_json",
++ "sha1 0.11.0",
++ "simdutf8",
+  "strum",
++ "time",
+  "tokio",
+  "tokio-rustls",
++ "tokio-rustls-acme",
+  "tokio-util",
+  "tokio-websockets",
++ "toml",
+  "tracing",
++ "tracing-subscriber",
+  "url",
+  "webpki-roots",
+  "ws_stream_wasm",
+@@ -3089,6 +3208,16 @@ version = "0.8.4"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
  
@@ -85,7 +261,7 @@ index 04c1963..8d4d488 100644
  [[package]]
  name = "memchr"
  version = "2.8.3"
-@@ -3129,7 +3155,7 @@ version = "0.18.3"
+@@ -3129,7 +3258,7 @@ version = "0.18.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "1db0d8f1fc9e62caebd0319e11eaec5822b0186c171568f0480b46a0137f9108"
  dependencies = [
@@ -94,7 +270,7 @@ index 04c1963..8d4d488 100644
   "evmap",
   "http-body-util",
   "hyper",
-@@ -3536,6 +3562,18 @@ dependencies = [
+@@ -3536,6 +3665,18 @@ dependencies = [
   "libc",
  ]
  
@@ -113,7 +289,24 @@ index 04c1963..8d4d488 100644
  [[package]]
  name = "nom"
  version = "7.1.3"
-@@ -3807,6 +3845,48 @@ dependencies = [
+@@ -3611,6 +3752,7 @@ dependencies = [
+  "rustc-hash 2.1.3",
+  "rustls",
+  "rustls-pki-types",
++ "rustls-platform-verifier",
+  "slab",
+  "sorted-index-buffer",
+  "thiserror 2.0.20",
+@@ -3702,7 +3844,7 @@ version = "0.7.6"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
+ dependencies = [
+- "proc-macro-crate 3.5.0",
++ "proc-macro-crate",
+  "proc-macro2",
+  "quote",
+  "syn 2.0.119",
+@@ -3807,6 +3949,57 @@ dependencies = [
   "memchr",
  ]
  
@@ -159,10 +352,46 @@ index 04c1963..8d4d488 100644
 + "windows-sys 0.61.2",
 +]
 +
++[[package]]
++name = "oid-registry"
++version = "0.8.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "12f40cff3dde1b6087cc5d5f5d4d65712f34016a03ed60e9c08dcc392736b5b7"
++dependencies = [
++ "asn1-rs",
++]
++
  [[package]]
  name = "once_cell"
  version = "1.21.4"
-@@ -4027,7 +4107,7 @@ version = "1.10.0"
+@@ -3938,6 +4131,26 @@ version = "1.0.15"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
+ 
++[[package]]
++name = "pem"
++version = "3.0.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1d30c53c26bc5b31a98cd02d20f25a7c8567146caf63ed593a9d87b2775291be"
++dependencies = [
++ "base64 0.22.1",
++ "serde_core",
++]
++
++[[package]]
++name = "pem"
++version = "4.0.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d354a98a3d1251555de99e8fdd8afda05573c31b82f59063a7b0a29b5527f120"
++dependencies = [
++ "base64 0.23.1",
++ "serde_core",
++]
++
+ [[package]]
+ name = "pem-rfc7468"
+ version = "1.0.0"
+@@ -4027,7 +4240,7 @@ version = "1.10.0"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "7da1d65da6dd5d1e44199ac0f58712d241c0f439f80adea8924d832384087f85"
  dependencies = [
@@ -171,7 +400,7 @@ index 04c1963..8d4d488 100644
   "indexmap",
   "quick-xml 0.41.0",
   "serde",
-@@ -4100,7 +4180,7 @@ version = "0.19.3"
+@@ -4100,7 +4313,7 @@ version = "0.19.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "ca97242f016e090a25330613bc2382aab65eb22f9149dbe84d8f8e711d49a530"
  dependencies = [
@@ -180,7 +409,25 @@ index 04c1963..8d4d488 100644
   "bytes",
   "derive_more 2.1.1",
   "hyper-util",
-@@ -4355,6 +4435,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+@@ -4218,16 +4431,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "b00f26d3400549137f92511a46ac1cd8ce37cb5598a96d382381458b992a5d24"
+ dependencies = [
+  "toml_datetime 0.6.3",
+- "toml_edit 0.20.2",
+-]
+-
+-[[package]]
+-name = "proc-macro-crate"
+-version = "3.5.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "e67ba7e9b2b56446f1d419b1d807906278ffa1a658a8a5d8a39dcb1f5a78614f"
+-dependencies = [
+- "toml_edit 0.25.13+spec-1.1.0",
++ "toml_edit",
+ ]
+ 
+ [[package]]
+@@ -4355,6 +4559,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "e660451e55124f798a69a5af3f49ccfbefbd41910eefd25caf2393e1f3473ec1"
  dependencies = [
   "memchr",
@@ -188,7 +435,51 @@ index 04c1963..8d4d488 100644
  ]
  
  [[package]]
-@@ -4630,7 +4711,7 @@ version = "0.12.28"
+@@ -4577,6 +4782,20 @@ dependencies = [
+  "crossbeam-utils",
+ ]
+ 
++[[package]]
++name = "rcgen"
++version = "0.14.10"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8774e05a7d0de114588e6a28fe7e71694b82614ed569d86d8b389dfbc98b8ad8"
++dependencies = [
++ "pem 4.0.0",
++ "ring",
++ "rustls-pki-types",
++ "time",
++ "x509-parser",
++ "yasna",
++]
++
+ [[package]]
+ name = "redb"
+ version = "4.2.0"
+@@ -4624,13 +4843,30 @@ version = "0.8.11"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+ 
++[[package]]
++name = "reloadable-core"
++version = "0.1.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1dc20ac1418988b60072d783c9f68e28a173fb63493c127952f6face3b40c6e0"
++
++[[package]]
++name = "reloadable-state"
++version = "0.1.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "3853ef78d45b50f8b989896304a85239539d39b7f866a000e8846b9b72d74ce8"
++dependencies = [
++ "arc-swap",
++ "reloadable-core",
++ "tokio",
++]
++
+ [[package]]
+ name = "reqwest"
+ version = "0.12.28"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
  dependencies = [
@@ -197,7 +488,7 @@ index 04c1963..8d4d488 100644
   "bytes",
   "futures-core",
   "http",
-@@ -4666,10 +4747,11 @@ version = "0.13.4"
+@@ -4666,10 +4902,11 @@ version = "0.13.4"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
  dependencies = [
@@ -210,7 +501,115 @@ index 04c1963..8d4d488 100644
   "http",
   "http-body",
   "http-body-util",
-@@ -5388,12 +5470,14 @@ dependencies = [
+@@ -4686,6 +4923,8 @@ dependencies = [
+  "rustls",
+  "rustls-pki-types",
+  "rustls-platform-verifier",
++ "serde",
++ "serde_json",
+  "sync_wrapper",
+  "tokio",
+  "tokio-native-tls",
+@@ -4766,6 +5005,15 @@ dependencies = [
+  "semver",
+ ]
+ 
++[[package]]
++name = "rusticata-macros"
++version = "4.1.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "faf0c4a6ece9950b9abdb62b1cfcf2a68b3b67a10ba445b3bb85be2a293d0632"
++dependencies = [
++ "nom 7.1.3",
++]
++
+ [[package]]
+ name = "rustix"
+ version = "1.1.4"
+@@ -4795,6 +5043,40 @@ dependencies = [
+  "zeroize",
+ ]
+ 
++[[package]]
++name = "rustls-cert-file-reader"
++version = "0.4.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8bb47c2a50fdfdaf95b0ac8b12620fc327da1fd4adbb30d0c56d866b005873ff"
++dependencies = [
++ "rustls-cert-read",
++ "rustls-pki-types",
++ "thiserror 2.0.20",
++ "tokio",
++]
++
++[[package]]
++name = "rustls-cert-read"
++version = "0.3.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "dd46e8c5ae4de3345c4786a83f99ec7aff287209b9e26fa883c473aeb28f19d5"
++dependencies = [
++ "rustls-pki-types",
++]
++
++[[package]]
++name = "rustls-cert-reloadable-resolver"
++version = "0.7.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "fe1baa8a3a1f05eaa9fc55aed4342867f70e5c170ea3bfed1b38c51a4857c0c8"
++dependencies = [
++ "futures-util",
++ "reloadable-state",
++ "rustls",
++ "rustls-cert-read",
++ "thiserror 2.0.20",
++]
++
+ [[package]]
+ name = "rustls-native-certs"
+ version = "0.8.4"
+@@ -5075,6 +5357,15 @@ dependencies = [
+  "serde_core",
+ ]
+ 
++[[package]]
++name = "serde_spanned"
++version = "1.1.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6662b5879511e06e8999a8a235d848113e942c9124f211511b16466ee2995f26"
++dependencies = [
++ "serde_core",
++]
++
+ [[package]]
+ name = "serde_urlencoded"
+ version = "0.7.1"
+@@ -5108,6 +5399,17 @@ dependencies = [
+  "digest 0.10.7",
+ ]
+ 
++[[package]]
++name = "sha1"
++version = "0.11.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
++dependencies = [
++ "cfg-if",
++ "cpufeatures 0.3.1",
++ "digest 0.11.3",
++]
++
+ [[package]]
+ name = "sha1_smol"
+ version = "1.0.1"
+@@ -5376,6 +5678,7 @@ dependencies = [
+  "hyper",
+  "hyper-util",
+  "iroh",
++ "iroh-relay",
+  "keyhive_core",
+  "keyhive_crypto",
+  "metrics",
+@@ -5388,12 +5691,14 @@ dependencies = [
   "reqwest 0.13.4",
   "sedimentree_core",
   "sedimentree_fs_storage",
@@ -225,7 +624,7 @@ index 04c1963..8d4d488 100644
   "subduction_redb_storage",
   "subduction_websocket",
   "tempfile",
-@@ -5518,7 +5602,7 @@ version = "0.1.0"
+@@ -5518,7 +5823,7 @@ version = "0.1.0"
  dependencies = [
   "async-tungstenite",
   "axum",
@@ -234,7 +633,16 @@ index 04c1963..8d4d488 100644
   "bolero",
   "future_form",
   "futures",
-@@ -5567,7 +5651,7 @@ version = "0.9.0"
+@@ -5527,7 +5832,7 @@ dependencies = [
+  "http-body-util",
+  "hyper",
+  "hyper-util",
+- "sha1",
++ "sha1 0.10.7",
+  "subduction_core",
+  "subduction_crypto",
+  "subduction_websocket",
+@@ -5567,7 +5872,7 @@ version = "0.9.0"
  dependencies = [
   "async-channel",
   "async-lock",
@@ -243,7 +651,7 @@ index 04c1963..8d4d488 100644
   "bincode",
   "blake3",
   "bolero",
-@@ -5595,6 +5679,26 @@ dependencies = [
+@@ -5595,6 +5900,26 @@ dependencies = [
   "tracing",
  ]
  
@@ -270,16 +678,42 @@ index 04c1963..8d4d488 100644
  [[package]]
  name = "subduction_redb_storage"
  version = "0.2.2"
-@@ -5812,7 +5916,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
- checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
- dependencies = [
-  "fastrand",
-- "getrandom 0.3.4",
-+ "getrandom 0.4.3",
-  "once_cell",
-  "rustix",
-  "windows-sys 0.61.2",
-@@ -6038,7 +6142,7 @@ version = "0.13.3"
+@@ -5994,6 +6319,34 @@ dependencies = [
+  "tokio",
+ ]
+ 
++[[package]]
++name = "tokio-rustls-acme"
++version = "0.9.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1af8573b15fdad8d66da116198cd8fd8d87ff62a67c1c6c3df7f62da1170793f"
++dependencies = [
++ "async-trait",
++ "base64 0.22.1",
++ "chrono",
++ "futures",
++ "log",
++ "num-bigint",
++ "pem 3.0.6",
++ "proc-macro2",
++ "rcgen",
++ "reqwest 0.13.4",
++ "ring",
++ "rustls",
++ "serde",
++ "serde_json",
++ "thiserror 2.0.20",
++ "time",
++ "tokio",
++ "tokio-rustls",
++ "webpki-roots",
++ "x509-parser",
++]
++
+ [[package]]
+ name = "tokio-stream"
+ version = "0.1.19"
+@@ -6038,7 +6391,7 @@ version = "0.13.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "d52efb639344a7c6adb8e62c6f3d2c19c001ff1b79a5041ba1c6ed42e19c6aa5"
  dependencies = [
@@ -288,7 +722,61 @@ index 04c1963..8d4d488 100644
   "bytes",
   "futures-core",
   "futures-sink",
-@@ -6110,7 +6214,7 @@ checksum = "ac2a5518c70fa84342385732db33fb3f44bc4cc748936eb5833d2df34d6445ef"
+@@ -6055,6 +6408,21 @@ dependencies = [
+  "tokio-util",
+ ]
+ 
++[[package]]
++name = "toml"
++version = "1.1.6+spec-1.1.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "920602543f0911ab71da12c50d59701da54c196d1a2bf5cb4b75667f137a406a"
++dependencies = [
++ "indexmap",
++ "serde_core",
++ "serde_spanned",
++ "toml_datetime 1.1.1+spec-1.1.0",
++ "toml_parser",
++ "toml_writer",
++ "winnow 1.0.4",
++]
++
+ [[package]]
+ name = "toml_datetime"
+ version = "0.6.3"
+@@ -6081,18 +6449,6 @@ dependencies = [
+  "winnow 0.5.40",
+ ]
+ 
+-[[package]]
+-name = "toml_edit"
+-version = "0.25.13+spec-1.1.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "6975367e4d2ef766d86af01ffad14b622fecc8d4357a998fbc4deb6e9bacaf9b"
+-dependencies = [
+- "indexmap",
+- "toml_datetime 1.1.1+spec-1.1.0",
+- "toml_parser",
+- "winnow 1.0.4",
+-]
+-
+ [[package]]
+ name = "toml_parser"
+ version = "1.1.3+spec-1.1.0"
+@@ -6102,6 +6458,12 @@ dependencies = [
+  "winnow 1.0.4",
+ ]
+ 
++[[package]]
++name = "toml_writer"
++version = "1.1.2+spec-1.1.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
++
+ [[package]]
+ name = "tonic"
+ version = "0.14.6"
+@@ -6110,7 +6472,7 @@ checksum = "ac2a5518c70fa84342385732db33fb3f44bc4cc748936eb5833d2df34d6445ef"
  dependencies = [
   "async-trait",
   "axum",
@@ -297,6 +785,67 @@ index 04c1963..8d4d488 100644
   "bytes",
   "h2",
   "http",
+@@ -6317,7 +6679,7 @@ dependencies = [
+  "rand 0.9.5",
+  "rustls",
+  "rustls-pki-types",
+- "sha1",
++ "sha1 0.10.7",
+  "thiserror 2.0.20",
+  "utf-8",
+ ]
+@@ -6945,9 +7307,6 @@ name = "winnow"
+ version = "1.0.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
+-dependencies = [
+- "memchr",
+-]
+ 
+ [[package]]
+ name = "wit-bindgen"
+@@ -7007,6 +7366,24 @@ dependencies = [
+  "zeroize",
+ ]
+ 
++[[package]]
++name = "x509-parser"
++version = "0.18.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d43b0f71ce057da06bc0851b23ee24f3f86190b07203dd8f567d0b706a185202"
++dependencies = [
++ "asn1-rs",
++ "data-encoding",
++ "der-parser",
++ "lazy_static",
++ "nom 7.1.3",
++ "oid-registry",
++ "ring",
++ "rusticata-macros",
++ "thiserror 2.0.20",
++ "time",
++]
++
+ [[package]]
+ name = "xml-rs"
+ version = "0.8.29"
+@@ -7022,6 +7399,16 @@ dependencies = [
+  "xml-rs",
+ ]
+ 
++[[package]]
++name = "yasna"
++version = "0.6.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b5f6765e852b9b4dc8e2a76843e4d64d1cea8e79bcde0b6901aea8e7c7f08282"
++dependencies = [
++ "bit-vec",
++ "time",
++]
++
+ [[package]]
+ name = "yoke"
+ version = "0.8.3"
 diff --git a/Cargo.toml b/Cargo.toml
 index 800b2ff..86a66e8 100644
 --- a/Cargo.toml
@@ -333,10 +882,18 @@ index 800b2ff..86a66e8 100644
  future_incompatible = { level = "warn", priority = -1 }
  let_underscore = { level = "warn", priority = -1 }
 diff --git a/subduction_cli/Cargo.toml b/subduction_cli/Cargo.toml
-index 8d36eee..863a060 100644
+index 8d36eee..ab41cc1 100644
 --- a/subduction_cli/Cargo.toml
 +++ b/subduction_cli/Cargo.toml
-@@ -43,12 +43,14 @@ metrics-util = { workspace = true }
+@@ -34,6 +34,7 @@ http-body-util = { workspace = true }
+ hyper = { workspace = true, features = ["http1", "server"] }
+ hyper-util = { workspace = true, features = ["tokio", "http1", "server-auto"] }
+ iroh = { workspace = true }
++iroh-relay = { version = "1.1", default-features = false, features = ["server"] }
+ keyhive_core = { workspace = true }
+ keyhive_crypto = { workspace = true }
+ metrics = { workspace = true }
+@@ -43,12 +44,14 @@ metrics-util = { workspace = true }
  nonempty = { workspace = true, features = ["std"] }
  rand = { workspace = true }
  reqwest = { workspace = true }
@@ -352,7 +909,7 @@ index 8d36eee..863a060 100644
  subduction_http_longpoll = { workspace = true, features = [
    "metrics",
 diff --git a/subduction_cli/README.md b/subduction_cli/README.md
-index 92ebd82..8354db6 100644
+index 92ebd82..b579179 100644
 --- a/subduction_cli/README.md
 +++ b/subduction_cli/README.md
 @@ -133,6 +133,20 @@ subduction_cli server --socket 0.0.0.0:8080 --key-file ./key
@@ -376,7 +933,7 @@ index 92ebd82..8354db6 100644
  #### Transport Options
  
  | Flag | Default | Description |
-@@ -350,6 +364,26 @@ Caddy automatically handles WebSocket upgrades and TLS certificates.
+@@ -350,6 +364,35 @@ Caddy automatically handles WebSocket upgrades and TLS certificates.
  
  </details>
  
@@ -400,15 +957,28 @@ index 92ebd82..8354db6 100644
 +long-poll requests are unaffected, so a server can carry a homepage at the
 +same URL clients sync with.
 +
++## Iroh Relay
++
++`--serve-iroh-relay` makes the server an [iroh relay](https://docs.rs/iroh-relay)
++on the sync port as well: WebSocket upgrades to `/relay` go to an in-process
++relay server, and `GET /ping` and `/generate_204` answer iroh's probes. Iroh
++endpoints use it by setting the server's URL (e.g. `https://sync.example.com`)
++as their relay URL. Anyone may relay through it. QUIC address discovery is not
++served, since it needs its own UDP port and TLS.
++
  ## Monitoring
  
  ### Prometheus
 diff --git a/subduction_cli/src/handler.rs b/subduction_cli/src/handler.rs
-index 9f0dbe7..08eecce 100644
+index 9f0dbe7..d8f9c7d 100644
 --- a/subduction_cli/src/handler.rs
 +++ b/subduction_cli/src/handler.rs
-@@ -11,8 +11,9 @@
- use std::sync::Arc;
+@@ -8,17 +8,18 @@
+ //! | `Ephemeral`  | [`EphemeralHandler`]       |
+ //! | `Keyhive`    | [`SendableKeyhiveHandler`] |
+ 
+-use std::sync::Arc;
++use std::sync::{Arc, OnceLock};
  
  use crate::{
 -    keyhive::{CliConnKeyhiveAdapter, FsKeyhiveStorage},
@@ -418,6 +988,13 @@ index 9f0dbe7..08eecce 100644
      transport::UnifiedTransport,
      wire::CliWireMessage,
  };
+ use future_form::Sendable;
+ use futures::future::BoxFuture;
+-use sedimentree_core::depth::CountLeadingZeroBytes;
++use sedimentree_core::{depth::CountLeadingZeroBytes, id::SedimentreeId};
+ use subduction_core::{
+     authenticated::Authenticated,
+     connection::message::SyncMessage,
 @@ -33,7 +34,6 @@ use subduction_ephemeral::{
      clock::std_clock::StdClock, handler::EphemeralHandler, policy::OpenEphemeralPolicy,
  };
@@ -457,7 +1034,82 @@ index 9f0dbe7..08eecce 100644
          CliConn,
          CliKeyhivePolicyHandle,
          CountLeadingZeroBytes,
-@@ -261,7 +261,7 @@ impl Handler<Sendable, CliConn> for CliHandlerOpenPolicy {
+@@ -92,6 +92,29 @@ pub(crate) type CliSyncHandler = Arc<
+     >,
+ >;
+ 
++/// Run before the server answers a client's request for a document: the
++/// server sets it once built (see `--ws-pull-peer`) to fetch the document from
++/// its pull peers first, so the answer already holds what they have.
++pub(crate) type PullFirstFn = dyn Fn(PeerId, SedimentreeId) -> BoxFuture<'static, ()> + Send + Sync;
++
++/// A slot for the [`PullFirstFn`]; empty means answer straight away.
++#[derive(Clone, Default)]
++pub(crate) struct PullFirst(Arc<OnceLock<Box<PullFirstFn>>>);
++
++impl PullFirst {
++    pub(crate) fn set(&self, pull: Box<PullFirstFn>) {
++        if self.0.set(pull).is_err() {
++            tracing::warn!("pull-first hook set twice; keeping the first");
++        }
++    }
++
++    async fn run(&self, from: PeerId, id: SedimentreeId) {
++        if let Some(pull) = self.0.get() {
++            pull(from, id).await;
++        }
++    }
++}
++
+ /// Server handler with keyhive disabled: keyhive (SUK) wire messages are
+ /// dropped and disconnects are not forwarded to keyhive. Used by `--auth open`
+ /// so a keyhive-free server never touches the keyhive runtime path.
+@@ -101,11 +124,20 @@ pub(crate) type CliSyncHandler = Arc<
+ pub(crate) struct CliHandlerOpenPolicy {
+     sync: CliSyncHandler,
+     ephemeral: CliEphemeralHandler,
++    pull_first: PullFirst,
+ }
+ 
+ impl CliHandlerOpenPolicy {
+-    pub(crate) const fn new(sync: CliSyncHandler, ephemeral: CliEphemeralHandler) -> Self {
+-        Self { sync, ephemeral }
++    pub(crate) const fn new(
++        sync: CliSyncHandler,
++        ephemeral: CliEphemeralHandler,
++        pull_first: PullFirst,
++    ) -> Self {
++        Self {
++            sync,
++            ephemeral,
++            pull_first,
++        }
+     }
+ 
+     /// Dispatch a `Sync` wire message.
+@@ -114,6 +146,9 @@ impl CliHandlerOpenPolicy {
+         conn: &Authenticated<CliConn, Sendable>,
+         sync_msg: SyncMessage,
+     ) -> Result<(), CliListenError> {
++        if let SyncMessage::BatchSyncRequest(ref request) = sync_msg {
++            self.pull_first.run(conn.peer_id(), request.id).await;
++        }
+         Handler::<Sendable, CliConn>::handle(self.sync.as_ref(), conn, sync_msg)
+             .await
+             .map_err(convert_sync_listen_error)
+@@ -149,9 +184,10 @@ impl CliHandler {
+         sync: CliSyncHandler,
+         ephemeral: CliEphemeralHandler,
+         keyhive: CliKeyhiveHandler,
++        pull_first: PullFirst,
+     ) -> Self {
+         Self {
+-            core: CliHandlerOpenPolicy::new(sync, ephemeral),
++            core: CliHandlerOpenPolicy::new(sync, ephemeral, pull_first),
+             keyhive,
+         }
+     }
+@@ -261,7 +297,7 @@ impl Handler<Sendable, CliConn> for CliHandlerOpenPolicy {
  fn convert_sync_listen_error(
      err: ListenError<
          Sendable,
@@ -478,11 +1130,100 @@ index cbc8d6e..788ea7e 100644
  mod transport;
  mod wire;
  
+diff --git a/subduction_cli/src/policy.rs b/subduction_cli/src/policy.rs
+index a17751f..0be90da 100644
+--- a/subduction_cli/src/policy.rs
++++ b/subduction_cli/src/policy.rs
+@@ -1,8 +1,14 @@
+ //! Keyhive-backed authorization policy for the CLI server.
+ //!
+ //! Legacy (zero-padded) doc IDs are always allowed.
++//!
++//! Pull-only peers (`--ws-pull-peer`) are refused every fetch whatever the
++//! auth mode, so no document data is sent to them.
+ 
+-use std::sync::Arc;
++use std::{
++    collections::HashSet,
++    sync::{Arc, RwLock},
++};
+ 
+ use async_lock::Mutex as AsyncMutex;
+ use dupe::Dupe;
+@@ -29,17 +35,37 @@ fn is_legacy(id: &SedimentreeId) -> bool {
+ #[derive(Clone, Debug)]
+ pub(crate) struct CliKeyhivePolicyHandle {
+     keyhive: Option<Arc<AsyncMutex<SendableRuntimeKeyhive>>>,
++    pull_only: Arc<RwLock<HashSet<PeerId>>>,
+ }
+ 
+ impl CliKeyhivePolicyHandle {
+-    pub(crate) const fn new(keyhive: Arc<AsyncMutex<SendableRuntimeKeyhive>>) -> Self {
++    pub(crate) fn new(keyhive: Arc<AsyncMutex<SendableRuntimeKeyhive>>) -> Self {
+         Self {
+             keyhive: Some(keyhive),
++            pull_only: Arc::default(),
++        }
++    }
++
++    pub(crate) fn open() -> Self {
++        Self {
++            keyhive: None,
++            pull_only: Arc::default(),
+         }
+     }
+ 
+-    pub(crate) const fn open() -> Self {
+-        Self { keyhive: None }
++    /// Refuse `peer` every fetch from now on: we take its data and give none back.
++    pub(crate) fn add_pull_only(&self, peer: PeerId) {
++        self.pull_only
++            .write()
++            .unwrap_or_else(std::sync::PoisonError::into_inner)
++            .insert(peer);
++    }
++
++    pub(crate) fn is_pull_only(&self, peer: &PeerId) -> bool {
++        self.pull_only
++            .read()
++            .unwrap_or_else(std::sync::PoisonError::into_inner)
++            .contains(peer)
+     }
+ }
+ 
+@@ -71,6 +97,9 @@ impl StoragePolicy<future_form::Sendable> for CliKeyhivePolicyHandle {
+         peer: PeerId,
+         sedimentree_id: SedimentreeId,
+     ) -> BoxFuture<'_, Result<(), Self::FetchDisallowed>> {
++        if self.is_pull_only(&peer) {
++            return async { Err(FetchDisallowedError::InsufficientAccess) }.boxed();
++        }
+         let Some(ref keyhive) = self.keyhive else {
+             return async { Ok(()) }.boxed();
+         };
+@@ -110,6 +139,9 @@ impl StoragePolicy<future_form::Sendable> for CliKeyhivePolicyHandle {
+         peer: PeerId,
+         ids: Vec<SedimentreeId>,
+     ) -> BoxFuture<'_, Vec<SedimentreeId>> {
++        if self.is_pull_only(&peer) {
++            return async { Vec::new() }.boxed();
++        }
+         let Some(ref keyhive) = self.keyhive else {
+             return async { ids }.boxed();
+         };
 diff --git a/subduction_cli/src/server.rs b/subduction_cli/src/server.rs
-index 77ada8f..2fafbc9 100644
+index 77ada8f..f326cec 100644
 --- a/subduction_cli/src/server.rs
 +++ b/subduction_cli/src/server.rs
-@@ -33,6 +33,7 @@ use subduction_core::{
+@@ -14,6 +14,7 @@ use eyre::Result;
+ use future_form::Sendable;
+ use iroh::{EndpointAddr, endpoint::presets};
+ use sedimentree_core::depth::CountLeadingZeroBytes;
++use subduction_core::policy::storage::StoragePolicy;
+ use subduction_core::{
+     authenticated::Authenticated,
+     handshake::{
+@@ -33,6 +34,7 @@ use subduction_core::{
  };
  use subduction_crypto::{nonce::Nonce, signer::memory::MemorySigner};
  use subduction_http_longpoll::server::LongPollHandler;
@@ -490,7 +1231,14 @@ index 77ada8f..2fafbc9 100644
  use subduction_redb_storage::RedbStorage;
  use subduction_websocket::{
      DEFAULT_MAX_MESSAGE_SIZE,
-@@ -62,6 +63,7 @@ use crate::{
+@@ -56,12 +58,13 @@ use subduction_keyhive::{connection::KeyhiveConnection, runtime::init_sendable_k
+ use crate::{
+     handler::{
+         CliConn, CliEphemeralHandler, CliHandler, CliHandlerOpenPolicy, CliKeyhiveHandler,
+-        CliKeyhiveProtocol, CliSyncHandler, CliWireHandler,
++        CliKeyhiveProtocol, CliSyncHandler, CliWireHandler, PullFirst, PullFirstFn,
+     },
+     key,
      keyhive::{CliConnKeyhiveAdapter, FsKeyhiveStorage, KEYHIVE_DIR},
      metrics,
      policy::CliKeyhivePolicyHandle,
@@ -498,7 +1246,7 @@ index 77ada8f..2fafbc9 100644
      transport::UnifiedTransport,
  };
  
-@@ -74,7 +76,7 @@ type CliSubduction<H> = Arc<
+@@ -74,7 +77,7 @@ type CliSubduction<H> = Arc<
      Subduction<
          'static,
          future_form::Sendable,
@@ -507,7 +1255,7 @@ index 77ada8f..2fafbc9 100644
          CliConn,
          H,
          CliKeyhivePolicyHandle,
-@@ -97,6 +99,21 @@ pub(crate) struct ServerArgs {
+@@ -97,6 +100,21 @@ pub(crate) struct ServerArgs {
      #[arg(short, long)]
      pub(crate) data_dir: Option<PathBuf>,
  
@@ -529,7 +1277,38 @@ index 77ada8f..2fafbc9 100644
      #[command(flatten)]
      pub(crate) key: key::KeyArgs,
  
-@@ -276,6 +293,13 @@ impl ServerArgs {
+@@ -195,6 +213,15 @@ pub(crate) struct ServerArgs {
+     #[arg(long = "ws-peer", value_name = "URL")]
+     pub(crate) ws_peers: Vec<String>,
+ 
++    /// WebSocket peer URLs to pull from but never push to. Like any peer we
++    /// dial, a client's subscription to a document is passed on to it. On
++    /// every (re)connect the server also syncs each document it holds with
++    /// the peer and subscribes to it. The peer is refused every fetch and
++    /// gets no pushes or presence; keyhive ops flow both ways. It is greeted
++    /// with its URL's host as the service name.
++    #[arg(long = "ws-pull-peer", value_name = "URL")]
++    pub(crate) ws_pull_peers: Vec<String>,
++
+     /// Enable the Iroh (QUIC) transport for NAT-traversing P2P connections
+     #[arg(long, default_value_t = false)]
+     pub(crate) iroh: bool,
+@@ -217,6 +244,14 @@ pub(crate) struct ServerArgs {
+     #[arg(long = "iroh-relay-url", value_name = "URL")]
+     pub(crate) iroh_relay_url: Option<String>,
+ 
++    /// Also be an iroh relay on the sync port: WebSocket upgrades to `/relay`
++    /// go to an in-process relay server, and plain `GET /ping` and
++    /// `/generate_204` answer iroh's latency and captive-portal probes. Iroh
++    /// endpoints use it with the server's URL as their relay URL. Anyone may
++    /// relay through it. There is no QUIC address discovery (it needs UDP).
++    #[arg(long = "serve-iroh-relay")]
++    pub(crate) serve_iroh_relay: bool,
++
+     /// Write a JSON file on startup with the assigned port, peer ID, and iroh node ID.
+     /// Useful for integration tests that need to discover the server's address.
+     #[arg(long = "ready-file", value_name = "PATH")]
+@@ -276,6 +311,13 @@ impl ServerArgs {
      }
  }
  
@@ -543,7 +1322,7 @@ index 77ada8f..2fafbc9 100644
  /// Default interval for refreshing storage metrics (1 minute).
  const DEFAULT_METRICS_REFRESH_SECS: u64 = 60;
  
-@@ -299,19 +323,27 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
+@@ -299,19 +341,27 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
  
      // Initialize the full keyhive stack: storage, identity, protocol, ingest.
      let keyhive_signer = key::keyhive_signer_from_seed(&common.seed);
@@ -575,23 +1354,32 @@ index 77ada8f..2fafbc9 100644
          kh_peer_id,
          contact_card,
      ));
-@@ -351,6 +383,7 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
+@@ -351,9 +401,10 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
          common,
          storage_policy,
          Some(keyhive_protocol),
+-        move |sync, ephemeral| {
 +        Some(contact_card_json),
-         move |sync, ephemeral| {
++        move |sync, ephemeral, pull_first| {
              let keyhive = CliKeyhiveHandler::new(keyhive_for_handler, CliConnKeyhiveAdapter::new);
-             Arc::new(CliHandler::new(sync, ephemeral, keyhive))
-@@ -374,6 +407,7 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
+-            Arc::new(CliHandler::new(sync, ephemeral, keyhive))
++            Arc::new(CliHandler::new(sync, ephemeral, keyhive, pull_first))
+         },
+     )
+     .await
+@@ -374,7 +425,10 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
          common,
          storage_policy,
          None,
+-        |sync, ephemeral| Arc::new(CliHandlerOpenPolicy::new(sync, ephemeral)),
 +        None,
-         |sync, ephemeral| Arc::new(CliHandlerOpenPolicy::new(sync, ephemeral)),
++        |sync, ephemeral, pull_first| {
++            Arc::new(CliHandlerOpenPolicy::new(sync, ephemeral, pull_first))
++        },
      )
      .await
-@@ -385,7 +419,9 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
+ }
+@@ -385,7 +439,9 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
  struct SetupCommon {
      addr: SocketAddr,
      data_dir: PathBuf,
@@ -602,13 +1390,14 @@ index 77ada8f..2fafbc9 100644
      seed: [u8; 32],
      signer: MemorySigner,
      peer_id: PeerId,
-@@ -414,18 +450,13 @@ impl SetupCommon {
+@@ -414,18 +470,13 @@ impl SetupCommon {
              );
          }
  
 -        tracing::info!(dir = ?data_dir, "Initializing redb storage");
 -        let redb_storage = RedbStorage::new(data_dir.clone())?;
--
++        let backend = open_storage(args, &data_dir, token).await?;
+ 
 -        // Optional localhost admin server for live inspection. Shares the redb
 -        // handle (Arc-cheap clone); queries run as MVCC read txns concurrent
 -        // with the live writer.
@@ -616,8 +1405,7 @@ index 77ada8f..2fafbc9 100644
 -            crate::admin::start_admin_server(admin_addr, redb_storage.clone(), token.clone())
 -                .await?;
 -        }
-+        let backend = open_storage(args, &data_dir, token).await?;
- 
+-
 -        let storage = MetricsStorage::new(redb_storage);
 +        let object_storage = match &backend {
 +            CliStorage::Object(object_storage) => Some(object_storage.clone()),
@@ -627,7 +1415,7 @@ index 77ada8f..2fafbc9 100644
  
          // Background metrics refresh
          if args.metrics {
-@@ -510,6 +541,7 @@ impl SetupCommon {
+@@ -510,6 +561,7 @@ impl SetupCommon {
              addr,
              data_dir,
              storage,
@@ -635,7 +1423,7 @@ index 77ada8f..2fafbc9 100644
              seed,
              signer,
              peer_id,
-@@ -521,6 +553,36 @@ impl SetupCommon {
+@@ -521,6 +573,36 @@ impl SetupCommon {
      }
  }
  
@@ -672,7 +1460,7 @@ index 77ada8f..2fafbc9 100644
  /// Build the Subduction instance and run the transport accept loops.
  ///
  /// Generic over the composed handler `H`. `keyhive_protocol` is `None` in open
-@@ -533,6 +595,7 @@ async fn serve<H, F>(
+@@ -533,15 +615,17 @@ async fn serve<H, F>(
      common: SetupCommon,
      storage_policy: Arc<CliKeyhivePolicyHandle>,
      keyhive_protocol: Option<CliKeyhiveProtocol>,
@@ -680,24 +1468,144 @@ index 77ada8f..2fafbc9 100644
      make_handler: F,
  ) -> Result<()>
  where
-@@ -768,6 +831,7 @@ where
+     H: CliWireHandler,
+-    F: FnOnce(CliSyncHandler, CliEphemeralHandler) -> Arc<H>,
++    F: FnOnce(CliSyncHandler, CliEphemeralHandler, PullFirst) -> Arc<H>,
+ {
+     let SetupCommon {
+         addr,
+         storage,
++        seed,
+         signer,
+         peer_id,
+         handshake_max_drift,
+@@ -553,7 +637,7 @@ where
+ 
+     let builder = SubductionBuilder::new()
+         .signer(signer.clone())
+-        .storage(storage, storage_policy)
++        .storage(storage, Arc::clone(&storage_policy))
+         .spawner(TokioSpawn)
+         .timer(FuturesTimerTimeout)
+         // Seeded so sequences resume above previous values across restarts;
+@@ -578,6 +662,7 @@ where
+     };
+ 
+     let mut requestor_tally = None;
++    let pull_first = PullFirst::default();
+     let (subduction, listener_fut, manager_fut, ephemeral): (CliSubduction<H>, _, _, _) = builder
+         .build_composed(|sync_handler| {
+             requestor_tally = Some(sync_handler.requestor_tally());
+@@ -604,13 +689,20 @@ where
+                 }
+             });
+ 
+-            let handler = make_handler(sync_handler, ephemeral_handler.clone());
++            let handler = make_handler(sync_handler, ephemeral_handler.clone(), pull_first.clone());
+ 
+             (handler, ephemeral_handler)
+         });
+ 
+     let server_peer_id = subduction.peer_id();
+ 
++    if !args.ws_pull_peers.is_empty() {
++        pull_first.set(pull_before_answering(
++            Arc::downgrade(&subduction),
++            Arc::clone(&storage_policy),
++        ));
++    }
++
+     // Periodically publish the in-memory cache occupancy and the top-requestor
+     // window. Lives here (not in the storage refresh task) because both come
+     // from `Subduction`/handler state, not the storage backend. The resident
+@@ -768,6 +860,12 @@ where
      let ws_keepalive = KeepAlive::balanced();
  
      let accept_keyhive = keyhive_protocol.clone();
 +    let static_dir: Option<Arc<std::path::Path>> = args.static_dir.clone().map(Arc::from);
++    let iroh_relay = if args.serve_iroh_relay {
++        Some(spawn_iroh_relay().await?)
++    } else {
++        None
++    };
      let accept_task = tokio::spawn(async move {
          accept_loop(
              tcp_listener,
-@@ -775,6 +839,8 @@ where
+@@ -775,6 +873,9 @@ where
              accept_ephemeral,
              accept_handler,
              accept_keyhive,
 +            contact_card_json,
 +            static_dir,
++            iroh_relay,
              accept_cancel,
              handshake_max_drift,
              max_message_size,
-@@ -1045,6 +1111,51 @@ fn publish_disk_usage(data_dir: &std::path::Path) {
+@@ -802,7 +903,10 @@ where
+             iroh::endpoint::RelayMode::Default
+         };
+ 
++        // The server's key, as keyhive also uses it: the endpoint ID is the
++        // peer ID, and stays the same across restarts.
+         let iroh_endpoint = iroh::Endpoint::builder(presets::N0)
++            .secret_key(iroh::SecretKey::from_bytes(&seed))
+             .alpns(vec![subduction_iroh::ALPN.to_vec()])
+             .relay_mode(relay_mode)
+             .bind()
+@@ -958,6 +1062,7 @@ where
+                 peer_max_message_size,
+                 peer_max_frame_size,
+                 peer_keepalive,
++                None,
+             )
+             .await
+             {
+@@ -971,6 +1076,44 @@ where
+         });
+     }
+ 
++    for peer_url in &args.ws_pull_peers {
++        let uri: Uri = match peer_url.parse() {
++            Ok(uri) => uri,
++            Err(e) => {
++                tracing::error!(url = %peer_url, error = %e, "Invalid pull peer URL");
++                continue;
++            }
++        };
++        let Some(host) = uri.host().map(str::to_owned) else {
++            tracing::error!(url = %peer_url, "Pull peer URL has no host");
++            continue;
++        };
++        // A fully qualified `host.` fails TLS (no SNI may end in a dot) and
++        // would not match the peer's service name.
++        let (uri, host) = match host.strip_suffix('.') {
++            Some(bare) => match peer_url.replacen(&host, bare, 1).parse() {
++                Ok(uri) => (uri, bare.to_owned()),
++                Err(e) => {
++                    tracing::error!(url = %peer_url, error = %e, "Invalid pull peer URL");
++                    continue;
++                }
++            },
++            None => (uri, host),
++        };
++        tokio::spawn(pull_from_ws_peer(
++            uri,
++            host,
++            subduction.clone(),
++            ephemeral.clone(),
++            keyhive_protocol.clone(),
++            signer.clone(),
++            Arc::clone(&storage_policy),
++            token.clone(),
++            args.max_message_size,
++            args.max_frame_size(),
++        ));
++    }
++
+     // Write ready file if requested (for integration tests)
+     if let Some(ref ready_path) = args.ready_file {
+         let iroh_line = iroh_node_id
+@@ -1045,6 +1188,91 @@ fn publish_disk_usage(data_dir: &std::path::Path) {
      subduction_core::metrics::set_redb_file_bytes(redb_bytes);
  }
  
@@ -746,24 +1654,66 @@ index 77ada8f..2fafbc9 100644
 +    })
 +}
 +
++/// How long an iroh relay client has to finish its upgrade and handshake.
++const IROH_RELAY_ESTABLISH_TIMEOUT: Duration = Duration::from_secs(30);
++
++/// The in-process iroh relay behind `--serve-iroh-relay`.
++///
++/// The relay server also listens on a loopback port of its own, which nothing
++/// uses: connections reach it from the accept loop. Dropping this stops it.
++struct IrohRelay(iroh_relay::server::Server);
++
++impl IrohRelay {
++    fn service(&self) -> iroh_relay::server::http_server::RelayService {
++        #[allow(clippy::expect_used)]
++        self.0
++            .relay_service()
++            .expect("spawned with a relay config")
++            .clone()
++    }
++}
++
++async fn spawn_iroh_relay() -> Result<IrohRelay> {
++    let mut config = iroh_relay::server::ServerConfig::default();
++    config.relay = Some(iroh_relay::server::RelayConfig::new(SocketAddr::from((
++        std::net::Ipv4Addr::LOCALHOST,
++        0,
++    ))));
++    let server = iroh_relay::server::Server::spawn(config)
++        .await
++        .map_err(|e| eyre::eyre!("starting the iroh relay: {e}"))?;
++    tracing::info!("serving an iroh relay at /relay");
++    Ok(IrohRelay(server))
++}
++
++/// Whether a request head's target is iroh's relay endpoint (`/relay`).
++fn is_iroh_relay_path(head: &[u8]) -> bool {
++    let path = iroh_relay::http::RELAY_PATH.as_bytes();
++    head.strip_prefix(b"GET ")
++        .and_then(|rest| rest.strip_prefix(path))
++        .is_some_and(|rest| matches!(rest.first(), Some(b' ' | b'?')))
++}
++
  /// Accept loop: routes incoming TCP connections to WebSocket or HTTP long-poll.
  #[allow(clippy::too_many_arguments)]
  async fn accept_loop<H: CliWireHandler>(
-@@ -1053,6 +1164,8 @@ async fn accept_loop<H: CliWireHandler>(
+@@ -1053,6 +1281,9 @@ async fn accept_loop<H: CliWireHandler>(
      ephemeral: CliEphemeralHandler,
      lp_handler: LongPollHandler<MemorySigner, FuturesTimerTimeout>,
      keyhive_proto: Option<CliKeyhiveProtocol>,
 +    contact_card_json: Option<Arc<str>>,
 +    static_dir: Option<Arc<std::path::Path>>,
++    iroh_relay: Option<IrohRelay>,
      cancel: CancellationToken,
      handshake_max_drift: Duration,
      max_message_size: usize,
-@@ -1080,20 +1193,25 @@ async fn accept_loop<H: CliWireHandler>(
+@@ -1080,20 +1311,37 @@ async fn accept_loop<H: CliWireHandler>(
                          let task_ephemeral = ephemeral.clone();
                          let task_handler = lp_handler.clone();
                          let task_keyhive = keyhive_proto.clone();
 +                        let task_contact_card = contact_card_json.clone();
 +                        let task_static_dir = static_dir.clone();
++                        let task_relay = iroh_relay.as_ref().map(IrohRelay::service);
                          let task_discovery = discovery_audience;
  
                          conns.spawn(async move {
@@ -785,14 +1735,25 @@ index 77ada8f..2fafbc9 100644
 +                                return;
 +                            };
 +
-+                            if peek_buf.starts_with(b"GET") && !is_websocket_upgrade(&peek_buf) {
-+                                handle_http_get(tcp, addr, task_contact_card, task_static_dir)
++                            let is_get = peek_buf.starts_with(b"GET");
++                            if is_get && !is_websocket_upgrade(&peek_buf) {
++                                let relay_probes = task_relay.is_some();
++                                handle_http_get(tcp, addr, task_contact_card, task_static_dir, relay_probes)
 +                                    .await;
++                                return;
++                            }
++
++                            if let Some(relay) = task_relay
++                                && is_get
++                                && is_iroh_relay_path(&peek_buf)
++                            {
++                                tracing::info!(addr = %addr, "iroh relay connection");
++                                relay.handle_connection(tcp, None, IROH_RELAY_ESTABLISH_TIMEOUT).await;
 +                                return;
                              }
  
                              let is_http = peek_buf.starts_with(b"POST")
-@@ -1131,7 +1249,7 @@ async fn accept_loop<H: CliWireHandler>(
+@@ -1131,7 +1379,7 @@ async fn accept_loop<H: CliWireHandler>(
                              } else {
                                  tracing::warn!(
                                      addr = %addr,
@@ -801,19 +1762,21 @@ index 77ada8f..2fafbc9 100644
                                      "unknown protocol"
                                  );
                              }
-@@ -1399,6 +1517,114 @@ async fn handle_http_longpoll<H: CliWireHandler>(
+@@ -1399,6 +1647,160 @@ async fn handle_http_longpoll<H: CliWireHandler>(
      }
  }
  
 +/// Answer plain HTTP `GET` requests: the server's keyhive contact card at
 +/// [`CONTACT_CARD_PATH`] and its [aliases](CONTACT_CARD_ALIASES) (the JSON a client hands to keyhive to delegate to
 +/// this server; absent when keyhive is disabled), then files from
-+/// `--static-dir`. Anything else is a 404.
++/// `--static-dir`. Anything else is a 404. With `relay_probes`, also iroh's
++/// relay probes, as the iroh relay server answers them.
 +async fn handle_http_get(
 +    tcp: tokio::net::TcpStream,
 +    addr: SocketAddr,
 +    contact_card_json: Option<Arc<str>>,
 +    static_dir: Option<Arc<std::path::Path>>,
++    relay_probes: bool,
 +) {
 +    use http_body_util::Full;
 +    use hyper::{
@@ -829,6 +1792,9 @@ index 77ada8f..2fafbc9 100644
 +        let static_dir = static_dir.clone();
 +        async move {
 +            let path = req.uri().path();
++            if relay_probes && let Some(resp) = iroh_relay_probe(&req) {
++                return Ok::<_, hyper::Error>(resp);
++            }
 +            let found = if path == CONTACT_CARD_PATH || CONTACT_CARD_ALIASES.contains(&path) {
 +                card.map(|json| ("application/json", Bytes::copy_from_slice(json.as_bytes())))
 +            } else if let Some(dir) = static_dir {
@@ -853,7 +1819,7 @@ index 77ada8f..2fafbc9 100644
 +            headers.insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
 +            headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-cache"));
 +            headers.insert(CONNECTION, HeaderValue::from_static("close"));
-+            Ok::<_, hyper::Error>(resp)
++            Ok(resp)
 +        }
 +    });
 +
@@ -869,6 +1835,47 @@ index 77ada8f..2fafbc9 100644
 +    if let Err(e) = conn.await {
 +        tracing::debug!(addr = %addr, error = %e, "HTTP connection ended");
 +    }
++}
++
++/// Iroh's relay probes: `/ping` (latency) is an empty 200, and
++/// `/generate_204` (captive portal check) a 204 that echoes a well-formed
++/// `X-Iroh-Challenge` as `X-Iroh-Response: response <challenge>`.
++fn iroh_relay_probe<B>(
++    req: &hyper::Request<B>,
++) -> Option<hyper::Response<http_body_util::Full<hyper::body::Bytes>>> {
++    use hyper::{
++        Response, StatusCode,
++        header::{ACCESS_CONTROL_ALLOW_ORIGIN, CONNECTION, HeaderValue},
++    };
++
++    let mut resp = Response::new(http_body_util::Full::default());
++    if req.uri().path() == iroh_relay::http::RELAY_PROBE_PATH {
++        *resp.status_mut() = StatusCode::OK;
++        resp.headers_mut()
++            .insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
++    } else if req.uri().path() == "/generate_204" {
++        *resp.status_mut() = StatusCode::NO_CONTENT;
++        let challenge = req
++            .headers()
++            .get("x-iroh-challenge")
++            .and_then(|c| c.to_str().ok())
++            .filter(|c| {
++                !c.is_empty()
++                    && c.len() < 64
++                    && c.bytes()
++                        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
++            });
++        if let Some(value) =
++            challenge.and_then(|c| HeaderValue::try_from(format!("response {c}")).ok())
++        {
++            resp.headers_mut().insert("x-iroh-response", value);
++        }
++    } else {
++        return None;
++    }
++    resp.headers_mut()
++        .insert(CONNECTION, HeaderValue::from_static("close"));
++    Some(resp)
 +}
 +
 +/// Read the file a request path names under `dir`, with its content type.
@@ -916,6 +1923,176 @@ index 77ada8f..2fafbc9 100644
  /// Wrap a connection in a keyhive adapter and register the peer.
  ///
  /// No-op when keyhive is disabled (`protocol` is `None`).
+@@ -1427,6 +1829,7 @@ async fn try_connect_ws<H: CliWireHandler>(
+     max_message_size: usize,
+     max_frame_size: usize,
+     keepalive: KeepAlive,
++    pull_only: Option<&CliKeyhivePolicyHandle>,
+ ) -> Result<PeerId, eyre::Error> {
+     let uri_str = uri.to_string();
+     tracing::info!(uri = %uri_str, service_name = %service_name, "Connecting to peer via discovery");
+@@ -1514,15 +1917,160 @@ async fn try_connect_ws<H: CliWireHandler>(
+     let remote_id = authenticated.peer_id();
+     tracing::info!(peer = %remote_id, "Handshake complete: connected to peer");
+ 
++    // Mark a pull-only peer before its connection is added, so it can never
++    // fetch, and leave it out of presence, which would relay to it.
++    if let Some(policy) = pull_only {
++        policy.add_pull_only(remote_id);
++    }
+     let auth_for_keyhive = authenticated.clone();
+     subduction.add_connection(authenticated).await?;
+-    ephemeral.subscribe_peer(remote_id).await;
++    if pull_only.is_none() {
++        ephemeral.subscribe_peer(remote_id).await;
++    }
+     notify_peer_connect(keyhive_proto, auth_for_keyhive).await;
+     tracing::info!(uri = %uri_str, "Connected to peer");
+ 
+     Ok(remote_id)
+ }
+ 
++/// How long a client's request for a document waits on the pull peers.
++const PULL_FIRST_TIMEOUT_MS: u64 = 5_000;
++
++/// The [`PullFirst`] hook for `--ws-pull-peer`: before answering a request
++/// for a document, sync it with each connected pull peer, so a document only
++/// they hold is in the first answer rather than pushed after it. Skipped for
++/// a document we already subscribe to through that peer, which live pushes
++/// keep current, and for a requester that may not fetch it anyway.
++fn pull_before_answering<H: CliWireHandler>(
++    subduction: std::sync::Weak<<CliSubduction<H> as std::ops::Deref>::Target>,
++    policy: Arc<CliKeyhivePolicyHandle>,
++) -> Box<PullFirstFn> {
++    Box::new(move |from, id| {
++        let subduction = subduction.clone();
++        let policy = Arc::clone(&policy);
++        Box::pin(async move {
++            let Some(subduction) = subduction.upgrade() else {
++                return;
++            };
++            if policy.is_pull_only(&from) || policy.authorize_fetch(from, id).await.is_err() {
++                return;
++            }
++            for peer in subduction.connected_peer_ids().await {
++                if !policy.is_pull_only(&peer)
++                    || subduction.get_peer_subscriptions(peer).await.contains(&id)
++                {
++                    continue;
++                }
++                let started = Instant::now();
++                match subduction
++                    .sync_with_peer(
++                        &peer,
++                        id,
++                        true,
++                        CallTimeout::TimeoutMillis(PULL_FIRST_TIMEOUT_MS),
++                    )
++                    .await
++                {
++                    Ok((ok, stats, _)) => tracing::info!(
++                        peer = %peer,
++                        tree = ?id,
++                        ok,
++                        commits_received = stats.commits_received,
++                        fragments_received = stats.fragments_received,
++                        elapsed_ms = started.elapsed().as_millis(),
++                        "Pulled document before answering"
++                    ),
++                    Err(e) => tracing::warn!(
++                        peer = %peer,
++                        tree = ?id,
++                        error = %e,
++                        "Pull before answering failed"
++                    ),
++                }
++            }
++        })
++    })
++}
++
++/// Keep a connection to a `--ws-pull-peer` for as long as the server runs.
++/// Each time it connects, sync every document we hold with it (subscribing,
++/// so later changes are pushed to us), since subscriptions passed on for
++/// clients do not survive a reconnect; when it drops, connect again, backing
++/// off up to five minutes between failures.
++#[allow(clippy::too_many_arguments)]
++async fn pull_from_ws_peer<H: CliWireHandler>(
++    uri: Uri,
++    service_name: String,
++    subduction: CliSubduction<H>,
++    ephemeral: CliEphemeralHandler,
++    keyhive: Option<CliKeyhiveProtocol>,
++    signer: MemorySigner,
++    policy: Arc<CliKeyhivePolicyHandle>,
++    cancel: CancellationToken,
++    max_message_size: usize,
++    max_frame_size: usize,
++) {
++    const MAX_BACKOFF: Duration = Duration::from_secs(300);
++    let mut backoff = Duration::from_secs(1);
++    while !cancel.is_cancelled() {
++        match try_connect_ws(
++            uri.clone(),
++            &subduction,
++            &ephemeral,
++            keyhive.as_ref(),
++            &signer,
++            &service_name,
++            cancel.clone(),
++            max_message_size,
++            max_frame_size,
++            KeepAlive::balanced(),
++            Some(&policy),
++        )
++        .await
++        {
++            Ok(remote_id) => {
++                backoff = Duration::from_secs(1);
++                let started = Instant::now();
++                let (_, stats, conn_errs, doc_errs) = subduction
++                    .full_sync_with_peer(&remote_id, true, CallTimeout::Default)
++                    .await;
++                tracing::info!(
++                    uri = %uri,
++                    peer = %remote_id,
++                    commits_received = stats.commits_received,
++                    fragments_received = stats.fragments_received,
++                    commits_sent = stats.commits_sent,
++                    fragments_sent = stats.fragments_sent,
++                    connection_errors = conn_errs.len(),
++                    document_errors = doc_errs.len(),
++                    elapsed_ms = started.elapsed().as_millis(),
++                    "Pulled from peer"
++                );
++                // Stay idle while the connection lasts.
++                let mut tick = time::interval(Duration::from_secs(10));
++                loop {
++                    tokio::select! {
++                        () = cancel.cancelled() => return,
++                        _ = tick.tick() => {}
++                    }
++                    if !subduction.connected_peer_ids().await.contains(&remote_id) {
++                        tracing::warn!(uri = %uri, peer = %remote_id, "Pull peer disconnected");
++                        break;
++                    }
++                }
++            }
++            Err(e) => {
++                tracing::error!(uri = %uri, error = %e, retry_in = ?backoff, "Failed to connect to pull peer");
++                tokio::select! {
++                    () = cancel.cancelled() => return,
++                    () = time::sleep(backoff) => {}
++                }
++                backoff = (backoff * 2).min(MAX_BACKOFF);
++            }
++        }
++    }
++}
++
+ /// Connect to a peer via Iroh (QUIC) transport (outbound).
+ #[allow(clippy::too_many_arguments)]
+ async fn try_connect_iroh<H: CliWireHandler>(
 diff --git a/subduction_cli/src/storage.rs b/subduction_cli/src/storage.rs
 new file mode 100644
 index 0000000..3c03952
@@ -1380,4 +2557,496 @@ index 0000000..4919048
 +    let server = spawn_server("open", &"44".repeat(32), &[]).await;
 +    let resp = reqwest::get(server.url("/")).await.unwrap();
 +    assert_eq!(resp.status(), 404);
++}
+diff --git a/subduction_cli/tests/iroh_relay.rs b/subduction_cli/tests/iroh_relay.rs
+new file mode 100644
+index 0000000..673ede8
+--- /dev/null
++++ b/subduction_cli/tests/iroh_relay.rs
+@@ -0,0 +1,222 @@
++//! `--serve-iroh-relay`: an iroh relay on the sync port, beside the sync
++//! transports and plain HTTP. Also the server's own iroh endpoint's identity.
++
++#![allow(
++    clippy::expect_used,
++    clippy::panic,
++    clippy::unwrap_used,
++    missing_docs,
++    unreachable_pub
++)]
++
++use std::{
++    io::{Read, Write},
++    net::TcpStream,
++    process::{Child, Command, Stdio},
++    time::Duration,
++};
++
++use futures::{SinkExt, StreamExt};
++use iroh::{RelayUrl, SecretKey, dns::DnsResolver};
++use iroh_relay::{
++    client::{Client, ClientBuilder},
++    protos::relay::{ClientToRelayMsg, Datagrams, RelayToClientMsg},
++    tls::{CaTlsConfig, default_provider},
++};
++
++const SERVER_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
++
++struct Server {
++    child: Child,
++    port: u16,
++    ready: String,
++    _dir: tempfile::TempDir,
++}
++
++impl Drop for Server {
++    fn drop(&mut self) {
++        drop(self.child.kill());
++        drop(self.child.wait());
++    }
++}
++
++impl Server {
++    fn url(&self, path: &str) -> String {
++        format!("http://127.0.0.1:{}{path}", self.port)
++    }
++}
++
++/// Spawn a server on an OS-assigned port and wait for its ready file.
++async fn spawn_server(extra: &[&str]) -> Server {
++    let dir = tempfile::tempdir().expect("tempdir");
++    let ready_file = dir.path().join("ready");
++    let child = Command::new(env!("CARGO_BIN_EXE_subduction_cli"))
++        .arg("server")
++        .args(["--socket", "127.0.0.1:0"])
++        .args(["--key-seed", &"44".repeat(32)])
++        .args(["--auth", "open"])
++        .arg("--data-dir")
++        .arg(dir.path().join("data"))
++        .arg("--ready-file")
++        .arg(&ready_file)
++        .args(extra)
++        .stderr(Stdio::inherit())
++        .stdout(Stdio::null())
++        .spawn()
++        .expect("failed to spawn server");
++    let mut server = Server {
++        child,
++        port: 0,
++        ready: String::new(),
++        _dir: dir,
++    };
++
++    let deadline = tokio::time::Instant::now() + SERVER_STARTUP_TIMEOUT;
++    loop {
++        assert!(
++            tokio::time::Instant::now() <= deadline,
++            "timed out waiting for ready file at {}",
++            ready_file.display()
++        );
++        if let Ok(content) = std::fs::read_to_string(&ready_file)
++            && let Some(port) = content.lines().find_map(|l| l.strip_prefix("port="))
++        {
++            server.port = port.parse().expect("ready file port should be a u16");
++            server.ready = content;
++            return server;
++        }
++        tokio::time::sleep(Duration::from_millis(50)).await;
++    }
++}
++
++async fn relay_client(server: &Server, secret_key: SecretKey) -> Client {
++    let url: RelayUrl = server.url("").parse().unwrap();
++    let tls = CaTlsConfig::default()
++        .client_config(default_provider())
++        .unwrap();
++    ClientBuilder::new(url, secret_key, DnsResolver::new())
++        .tls_client_config(tls)
++        .connect()
++        .await
++        .expect("connecting to the relay")
++}
++
++/// Send raw bytes and read the whole response.
++fn raw_request(port: u16, request: &str) -> String {
++    let mut tcp = TcpStream::connect(("127.0.0.1", port)).unwrap();
++    tcp.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
++    tcp.write_all(request.as_bytes()).unwrap();
++    let mut response = String::new();
++    drop(tcp.read_to_string(&mut response));
++    response
++}
++
++#[tokio::test]
++async fn relays_datagrams_between_clients() {
++    let server = spawn_server(&["--serve-iroh-relay"]).await;
++
++    let a_key = SecretKey::from_bytes(&[1; 32]);
++    let b_key = SecretKey::from_bytes(&[2; 32]);
++    let (a_id, b_id) = (a_key.public(), b_key.public());
++    let mut a = relay_client(&server, a_key).await;
++    let mut b = relay_client(&server, b_key).await;
++
++    // b may not be registered with the relay yet when a first sends.
++    let msg = Datagrams::from("hello, b");
++    let mut received = None;
++    for _ in 0..20 {
++        a.send(ClientToRelayMsg::Datagrams {
++            dst_endpoint_id: b_id,
++            datagrams: msg.clone(),
++        })
++        .await
++        .unwrap();
++        if let Ok(next) = tokio::time::timeout(Duration::from_millis(500), b.next()).await {
++            received = Some(next.expect("relay stream ended").unwrap());
++            break;
++        }
++    }
++    let Some(RelayToClientMsg::Datagrams {
++        remote_endpoint_id,
++        datagrams,
++    }) = received
++    else {
++        panic!("b got {received:?}");
++    };
++    assert_eq!(remote_endpoint_id, a_id);
++    assert_eq!(datagrams, msg);
++}
++
++#[tokio::test]
++async fn answers_relay_probes_beside_the_sync_port() {
++    let site = tempfile::tempdir().unwrap();
++    std::fs::write(site.path().join("index.html"), "home").unwrap();
++    let server = spawn_server(&[
++        "--serve-iroh-relay",
++        "--static-dir",
++        site.path().to_str().unwrap(),
++    ])
++    .await;
++
++    let resp = reqwest::get(server.url("/ping")).await.unwrap();
++    assert_eq!(resp.status(), 200);
++    assert_eq!(resp.headers()["access-control-allow-origin"], "*");
++
++    let response = raw_request(
++        server.port,
++        "GET /generate_204 HTTP/1.1\r\nHost: x\r\nX-Iroh-Challenge: abc.1\r\nConnection: close\r\n\r\n",
++    );
++    assert!(response.starts_with("HTTP/1.1 204"), "{response}");
++    assert!(
++        response
++            .to_ascii_lowercase()
++            .contains("x-iroh-response: response abc.1"),
++        "{response}"
++    );
++
++    // The homepage is still there.
++    let resp = reqwest::get(server.url("/")).await.unwrap();
++    assert_eq!(resp.text().await.unwrap(), "home");
++}
++
++#[tokio::test]
++async fn without_the_flag_there_is_no_relay() {
++    let server = spawn_server(&[]).await;
++    let resp = reqwest::get(server.url("/ping")).await.unwrap();
++    assert_eq!(resp.status(), 404);
++
++    let url: RelayUrl = server.url("").parse().unwrap();
++    let tls = CaTlsConfig::default()
++        .client_config(default_provider())
++        .unwrap();
++    let connected = tokio::time::timeout(
++        Duration::from_secs(10),
++        ClientBuilder::new(url, SecretKey::from_bytes(&[3; 32]), DnsResolver::new())
++            .tls_client_config(tls)
++            .connect(),
++    )
++    .await
++    .expect("a refused relay connection fails promptly");
++    assert!(connected.is_err());
++}
++
++#[tokio::test]
++async fn iroh_endpoint_id_is_the_server_key() {
++    let ready_id = |server: &Server| {
++        server
++            .ready
++            .lines()
++            .find_map(|l| l.strip_prefix("iroh_node_id="))
++            .expect("the ready file names the iroh endpoint")
++            .to_owned()
++    };
++    let expected = SecretKey::from_bytes(&[0x44; 32]).public().to_string();
++
++    let server = spawn_server(&["--iroh", "--iroh-direct-only"]).await;
++    assert_eq!(ready_id(&server), expected);
++    drop(server);
++
++    // The same after a restart, so peers can keep dialing it.
++    let server = spawn_server(&["--iroh", "--iroh-direct-only"]).await;
++    assert_eq!(ready_id(&server), expected);
++}
+diff --git a/subduction_cli/tests/pull_peer.rs b/subduction_cli/tests/pull_peer.rs
+new file mode 100644
+index 0000000..8cd01be
+--- /dev/null
++++ b/subduction_cli/tests/pull_peer.rs
+@@ -0,0 +1,258 @@
++//! End-to-end test of `--ws-pull-peer`: a server takes a peer's data and
++//! gives none back.
++//!
++//! Server `down` pulls from server `up`. Each holds one commit of the same
++//! document before they meet (a server only syncs documents it knows). After
++//! they connect `down` has both commits and `up` still has only its own; a
++//! commit written to `up` afterwards reaches `down`, and one written to
++//! `down` never reaches `up`. A client subscribing at `down` to a document
++//! only `up` holds gets it, since `down` passes the subscription on.
++
++#![allow(
++    clippy::expect_used,
++    clippy::panic,
++    clippy::unwrap_used,
++    missing_docs,
++    unreachable_pub
++)]
++
++use std::{
++    collections::BTreeSet,
++    path::{Path, PathBuf},
++    process::{Child, Command, Stdio},
++    sync::Arc,
++    time::Duration,
++};
++
++use future_form::Sendable;
++use sedimentree_core::{
++    blob::Blob, depth::CountLeadingZeroBytes, id::SedimentreeId, loose_commit::id::CommitId,
++};
++use subduction_core::{
++    connection::test_utils::TokioSpawn,
++    handler::sync::SyncHandler,
++    policy::open::OpenPolicy,
++    storage::memory::MemoryStorage,
++    subduction::{Subduction, builder::SubductionBuilder},
++    timeout::call::CallTimeout,
++    timestamp::TimestampSeconds,
++    transport::message::MessageTransport,
++};
++use subduction_crypto::signer::memory::MemorySigner;
++use subduction_http_longpoll::{
++    client::HttpLongPollClient, http_client::reqwest_client::ReqwestHttpClient,
++    transport::HttpLongPollTransport,
++};
++use subduction_websocket::timeout::FuturesTimerTimeout;
++
++const SYNC_TIMEOUT: CallTimeout = CallTimeout::TimeoutMillis(10_000);
++// The pull peer greets `up` with its URL's host (less any trailing dot), so
++// that is `up`'s name.
++const UP_NAME: &str = "localhost";
++const DOWN_NAME: &str = "pull-peer-test";
++
++type Client = Arc<
++    Subduction<
++        'static,
++        Sendable,
++        MemoryStorage,
++        MessageTransport<HttpLongPollTransport>,
++        SyncHandler<
++            Sendable,
++            MemoryStorage,
++            MessageTransport<HttpLongPollTransport>,
++            OpenPolicy,
++            CountLeadingZeroBytes,
++            TokioSpawn,
++        >,
++        OpenPolicy,
++        MemorySigner,
++        FuturesTimerTimeout,
++        TokioSpawn,
++        CountLeadingZeroBytes,
++    >,
++>;
++
++struct Server {
++    child: Child,
++    port: u16,
++}
++
++impl Drop for Server {
++    fn drop(&mut self) {
++        self.child.kill().ok();
++        self.child.wait().ok();
++    }
++}
++
++impl Server {
++    fn url(&self) -> String {
++        format!("http://127.0.0.1:{}", self.port)
++    }
++}
++
++fn cli_binary() -> PathBuf {
++    let mut path = std::env::current_exe().expect("test executable path");
++    path.pop();
++    path.pop();
++    path.push("subduction_cli");
++    path
++}
++
++#[allow(clippy::zombie_processes)] // killed and waited on in `Drop`
++async fn spawn_server(key_seed: &str, name: &str, data_dir: &Path, extra: &[&str]) -> Server {
++    let ready = data_dir.join("ready");
++    std::fs::remove_file(&ready).ok();
++    let child = Command::new(cli_binary())
++        .args(["server", "--socket", "127.0.0.1:0", "--auth", "open"])
++        .args(["--key-seed", key_seed, "--service-name", name])
++        .arg("--data-dir")
++        .arg(data_dir)
++        .arg("--ready-file")
++        .arg(&ready)
++        .args(extra)
++        .env("RUST_LOG", "info")
++        .stderr(Stdio::inherit())
++        .stdout(Stdio::null())
++        .spawn()
++        .expect("spawn server");
++    for _ in 0..300 {
++        if let Ok(content) = std::fs::read_to_string(&ready)
++            && let Some(port) = content
++                .lines()
++                .find_map(|l| l.strip_prefix("port="))
++                .and_then(|p| p.parse().ok())
++        {
++            return Server { child, port };
++        }
++        tokio::time::sleep(Duration::from_millis(100)).await;
++    }
++    panic!("server did not write its ready file");
++}
++
++async fn connect(base_url: &str, seed: u8, name: &str) -> Client {
++    let signer = MemorySigner::from_bytes(&[seed; 32]);
++    let (client, _handler, listener, manager): (Client, _, _, _) = SubductionBuilder::new()
++        .signer(signer.clone())
++        .storage(MemoryStorage::default(), Arc::new(OpenPolicy))
++        .spawner(TokioSpawn)
++        .timer(FuturesTimerTimeout)
++        .build::<Sendable, MessageTransport<HttpLongPollTransport>>();
++    tokio::spawn(listener);
++    tokio::spawn(manager);
++    let lp = HttpLongPollClient::new(base_url, ReqwestHttpClient::new());
++    let result = lp
++        .connect_discover(&signer, name, TimestampSeconds::now())
++        .await
++        .expect("long-poll connect");
++    tokio::spawn(result.poll_task);
++    tokio::spawn(result.send_task);
++    client
++        .add_connection(result.authenticated.map(MessageTransport::new))
++        .await
++        .expect("add_connection");
++    client
++}
++
++async fn write_commit(server: &Server, seed: u8, name: &str, id: SedimentreeId, tag: u8) {
++    let client = connect(&server.url(), seed, name).await;
++    client
++        .add_commit(
++            id,
++            CommitId::new([tag; 32]),
++            BTreeSet::new(),
++            Blob::new(vec![tag]),
++        )
++        .await
++        .expect("add commit");
++    let (ok, _, call_errs, io_errs) = client.full_sync_with_all_peers(SYNC_TIMEOUT).await;
++    assert!(
++        ok && call_errs.is_empty() && io_errs.is_empty(),
++        "write sync failed"
++    );
++    // The commit is sent without an ack: keep the client until it has landed.
++    for read_seed in 0x80..0xb0 {
++        if commits(server, read_seed, name, id).await.contains(&tag) {
++            return;
++        }
++        tokio::time::sleep(Duration::from_millis(100)).await;
++    }
++    panic!("{name} never stored commit {tag}");
++}
++
++/// The commit tags a fresh client sees on `server` for `id`.
++async fn commits(server: &Server, seed: u8, name: &str, id: SedimentreeId) -> BTreeSet<u8> {
++    let client = connect(&server.url(), seed, name).await;
++    client
++        .sync_with_all_peers(id, false, SYNC_TIMEOUT)
++        .await
++        .expect("read sync");
++    client
++        .get_commits(id)
++        .await
++        .unwrap_or_default()
++        .iter()
++        .map(|c| c.head().as_bytes()[0])
++        .collect()
++}
++
++async fn wait_for(server: &Server, name: &str, id: SedimentreeId, want: &[u8]) {
++    let want: BTreeSet<u8> = want.iter().copied().collect();
++    let mut seed = 0x40;
++    for _ in 0..30 {
++        seed += 1;
++        if commits(server, seed, name, id).await == want {
++            return;
++        }
++        tokio::time::sleep(Duration::from_millis(500)).await;
++    }
++    panic!("{name} never held commits {want:?}");
++}
++
++#[tokio::test]
++async fn pull_peer_takes_but_never_gives() {
++    let up_dir = tempfile::tempdir().expect("tmpdir");
++    let down_dir = tempfile::tempdir().expect("tmpdir");
++    let id = SedimentreeId::new([7; 32]);
++    let (up_seed, down_seed) = ("aa".repeat(32), "bb".repeat(32));
++
++    let up = spawn_server(&up_seed, UP_NAME, up_dir.path(), &[]).await;
++    write_commit(&up, 0x10, UP_NAME, id, 1).await;
++
++    // `down` learns the document first, then restarts pointed at `up`.
++    let down = spawn_server(&down_seed, DOWN_NAME, down_dir.path(), &[]).await;
++    write_commit(&down, 0x11, DOWN_NAME, id, 2).await;
++    drop(down);
++    // Fully qualified, as a deploy might write it.
++    let peer = format!("ws://localhost.:{}", up.port);
++    let down = spawn_server(
++        &down_seed,
++        DOWN_NAME,
++        down_dir.path(),
++        &["--ws-pull-peer", &peer],
++    )
++    .await;
++
++    wait_for(&down, DOWN_NAME, id, &[1, 2]).await;
++    assert_eq!(commits(&up, 0x20, UP_NAME, id).await, [1].into());
++
++    // Live changes: `up`'s reach `down`, `down`'s stay put.
++    write_commit(&up, 0x12, UP_NAME, id, 3).await;
++    write_commit(&down, 0x13, DOWN_NAME, id, 4).await;
++    wait_for(&down, DOWN_NAME, id, &[1, 2, 3, 4]).await;
++    tokio::time::sleep(Duration::from_secs(2)).await;
++    assert_eq!(commits(&up, 0x21, UP_NAME, id).await, [1, 3].into());
++
++    // A document `down` has never seen is in its first answer: `down` pulls
++    // it before answering.
++    let other = SedimentreeId::new([8; 32]);
++    write_commit(&up, 0x14, UP_NAME, other, 5).await;
++    let client = connect(&down.url(), 0x30, DOWN_NAME).await;
++    let synced = client
++        .sync_with_all_peers(other, true, SYNC_TIMEOUT)
++        .await
++        .expect("subscribe");
++    let received: usize = synced.values().map(|(_, s, _)| s.commits_received).sum();
++    assert_eq!(received, 1, "first answer should carry up's commit");
++    wait_for(&down, DOWN_NAME, other, &[5]).await;
 +}

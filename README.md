@@ -1,8 +1,10 @@
 # galaxy.observer
 
 A [Subduction](https://github.com/inkandswitch/subduction) sync server with
-keyhive, storing in a volume or an S3-compatible bucket. `GET /` is the
-homepage in `public/`.
+keyhive, storing in a volume or an S3-compatible bucket, and an
+[iroh](https://iroh.computer) relay at `https://galaxy.observer`. It syncs
+over WebSocket, HTTP long-poll and iroh. `GET /` is the homepage in
+`public/`.
 
 ## What's here
 
@@ -23,6 +25,25 @@ The patch gives the server:
 - `GET /.well-known/keyhive/contact-card.json` (also `/contact-card.json` and
   `/contact-card`): the server's keyhive contact
   card.
+- `--ws-pull-peer <URL>`: pull from another server without pushing to it.
+  Before answering a client's request for a document, the server syncs it
+  with the peer (at most 5 seconds; skipped once it is subscribed there), so
+  a document only the peer holds is in the first answer. On every
+  (re)connect it also syncs each document it holds with the peer and
+  subscribes. The peer is refused every fetch and gets no document data or
+  presence; keyhive ops flow both ways. It is greeted with the URL's host,
+  less any trailing dot, as its service name.
+- `--serve-iroh-relay`: be an iroh relay on the sync port. WebSocket
+  upgrades to `/relay` go to an in-process `iroh-relay` server, and plain
+  `GET /ping` and `/generate_204` answer iroh's probes, so an iroh endpoint
+  can use `https://galaxy.observer` as its relay URL. Anyone may relay
+  through it. There is no QUIC address discovery: that needs a UDP port,
+  which Railway doesn't route.
+- `--iroh` keeps the same endpoint ID across restarts: it's the server's key
+  (as keyhive's identity is), so the endpoint ID is the peer ID. Upstream
+  made a new one each start. `start.sh` turns iroh on with this server's own
+  relay as its home, which is how iroh peers reach it, since Railway routes
+  no inbound UDP.
 - `--static-dir <DIR>`: serve files to plain `GET` requests on the sync port.
   Each plain request gets its own connection, so a client's later WebSocket
   upgrade never lands on a page connection.
@@ -35,6 +56,7 @@ The patch gives the server:
 | `SUBDUCTION_AUTH` | `keyhive` | `open` turns keyhive off |
 | `SUBDUCTION_OBJECT_STORE` | unset | `s3://bucket/prefix`; unset stores on the `/data` volume |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_ENDPOINT_URL` | | bucket credentials and endpoint |
+| `SUBDUCTION_PULL_PEERS` | unset | space-separated `wss://` URLs to pull from but never push to, e.g. `wss://subduction.sync.inkandswitch.com` |
 | `SUBDUCTION_KEY_SEED` | unset | 64 hex characters; unset generates a key at `/data/key` |
 | `PORT` | `8080` | |
 
