@@ -16,6 +16,12 @@ else
 	set -- --key-file "$KEY_FILE"
 fi
 
+# SUBDUCTION_PULL_PEERS: space-separated WebSocket URLs of servers to pull
+# documents from without ever sending them any.
+for url in ${SUBDUCTION_PULL_PEERS:-}; do
+	set -- "$@" --ws-pull-peer "$url"
+done
+
 # Storage is redb under $DATA_DIR/store unless SUBDUCTION_OBJECT_STORE names a
 # bucket (s3://bucket/prefix, with AWS_* credentials), which the server reads
 # from the environment itself.

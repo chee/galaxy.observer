@@ -478,8 +478,89 @@ index cbc8d6e..788ea7e 100644
  mod transport;
  mod wire;
  
+diff --git a/subduction_cli/src/policy.rs b/subduction_cli/src/policy.rs
+index a17751f..2b69964 100644
+--- a/subduction_cli/src/policy.rs
++++ b/subduction_cli/src/policy.rs
+@@ -1,8 +1,14 @@
+ //! Keyhive-backed authorization policy for the CLI server.
+ //!
+ //! Legacy (zero-padded) doc IDs are always allowed.
++//!
++//! Pull-only peers (`--ws-pull-peer`) are refused every fetch whatever the
++//! auth mode, so no document data is sent to them.
+ 
+-use std::sync::Arc;
++use std::{
++    collections::HashSet,
++    sync::{Arc, RwLock},
++};
+ 
+ use async_lock::Mutex as AsyncMutex;
+ use dupe::Dupe;
+@@ -29,17 +35,37 @@ fn is_legacy(id: &SedimentreeId) -> bool {
+ #[derive(Clone, Debug)]
+ pub(crate) struct CliKeyhivePolicyHandle {
+     keyhive: Option<Arc<AsyncMutex<SendableRuntimeKeyhive>>>,
++    pull_only: Arc<RwLock<HashSet<PeerId>>>,
+ }
+ 
+ impl CliKeyhivePolicyHandle {
+-    pub(crate) const fn new(keyhive: Arc<AsyncMutex<SendableRuntimeKeyhive>>) -> Self {
++    pub(crate) fn new(keyhive: Arc<AsyncMutex<SendableRuntimeKeyhive>>) -> Self {
+         Self {
+             keyhive: Some(keyhive),
++            pull_only: Arc::default(),
++        }
++    }
++
++    pub(crate) fn open() -> Self {
++        Self {
++            keyhive: None,
++            pull_only: Arc::default(),
+         }
+     }
+ 
+-    pub(crate) const fn open() -> Self {
+-        Self { keyhive: None }
++    /// Refuse `peer` every fetch from now on: we take its data and give none back.
++    pub(crate) fn add_pull_only(&self, peer: PeerId) {
++        self.pull_only
++            .write()
++            .unwrap_or_else(std::sync::PoisonError::into_inner)
++            .insert(peer);
++    }
++
++    fn is_pull_only(&self, peer: &PeerId) -> bool {
++        self.pull_only
++            .read()
++            .unwrap_or_else(std::sync::PoisonError::into_inner)
++            .contains(peer)
+     }
+ }
+ 
+@@ -71,6 +97,9 @@ impl StoragePolicy<future_form::Sendable> for CliKeyhivePolicyHandle {
+         peer: PeerId,
+         sedimentree_id: SedimentreeId,
+     ) -> BoxFuture<'_, Result<(), Self::FetchDisallowed>> {
++        if self.is_pull_only(&peer) {
++            return async { Err(FetchDisallowedError::InsufficientAccess) }.boxed();
++        }
+         let Some(ref keyhive) = self.keyhive else {
+             return async { Ok(()) }.boxed();
+         };
+@@ -110,6 +139,9 @@ impl StoragePolicy<future_form::Sendable> for CliKeyhivePolicyHandle {
+         peer: PeerId,
+         ids: Vec<SedimentreeId>,
+     ) -> BoxFuture<'_, Vec<SedimentreeId>> {
++        if self.is_pull_only(&peer) {
++            return async { Vec::new() }.boxed();
++        }
+         let Some(ref keyhive) = self.keyhive else {
+             return async { ids }.boxed();
+         };
 diff --git a/subduction_cli/src/server.rs b/subduction_cli/src/server.rs
-index 77ada8f..2fafbc9 100644
+index 77ada8f..71889eb 100644
 --- a/subduction_cli/src/server.rs
 +++ b/subduction_cli/src/server.rs
 @@ -33,6 +33,7 @@ use subduction_core::{
@@ -529,7 +610,23 @@ index 77ada8f..2fafbc9 100644
      #[command(flatten)]
      pub(crate) key: key::KeyArgs,
  
-@@ -276,6 +293,13 @@ impl ServerArgs {
+@@ -195,6 +212,15 @@ pub(crate) struct ServerArgs {
+     #[arg(long = "ws-peer", value_name = "URL")]
+     pub(crate) ws_peers: Vec<String>,
+ 
++    /// WebSocket peer URLs to pull from but never push to. Like any peer we
++    /// dial, a client's subscription to a document is passed on to it. On
++    /// every (re)connect the server also syncs each document it holds with
++    /// the peer and subscribes to it. The peer is refused every fetch and
++    /// gets no pushes or presence; keyhive ops flow both ways. It is greeted
++    /// with its URL's host as the service name.
++    #[arg(long = "ws-pull-peer", value_name = "URL")]
++    pub(crate) ws_pull_peers: Vec<String>,
++
+     /// Enable the Iroh (QUIC) transport for NAT-traversing P2P connections
+     #[arg(long, default_value_t = false)]
+     pub(crate) iroh: bool,
+@@ -276,6 +302,13 @@ impl ServerArgs {
      }
  }
  
@@ -543,7 +640,7 @@ index 77ada8f..2fafbc9 100644
  /// Default interval for refreshing storage metrics (1 minute).
  const DEFAULT_METRICS_REFRESH_SECS: u64 = 60;
  
-@@ -299,19 +323,27 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
+@@ -299,19 +332,27 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
  
      // Initialize the full keyhive stack: storage, identity, protocol, ingest.
      let keyhive_signer = key::keyhive_signer_from_seed(&common.seed);
@@ -575,7 +672,7 @@ index 77ada8f..2fafbc9 100644
          kh_peer_id,
          contact_card,
      ));
-@@ -351,6 +383,7 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
+@@ -351,6 +392,7 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
          common,
          storage_policy,
          Some(keyhive_protocol),
@@ -583,7 +680,7 @@ index 77ada8f..2fafbc9 100644
          move |sync, ephemeral| {
              let keyhive = CliKeyhiveHandler::new(keyhive_for_handler, CliConnKeyhiveAdapter::new);
              Arc::new(CliHandler::new(sync, ephemeral, keyhive))
-@@ -374,6 +407,7 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
+@@ -374,6 +416,7 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
          common,
          storage_policy,
          None,
@@ -591,7 +688,7 @@ index 77ada8f..2fafbc9 100644
          |sync, ephemeral| Arc::new(CliHandlerOpenPolicy::new(sync, ephemeral)),
      )
      .await
-@@ -385,7 +419,9 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
+@@ -385,7 +428,9 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
  struct SetupCommon {
      addr: SocketAddr,
      data_dir: PathBuf,
@@ -602,13 +699,14 @@ index 77ada8f..2fafbc9 100644
      seed: [u8; 32],
      signer: MemorySigner,
      peer_id: PeerId,
-@@ -414,18 +450,13 @@ impl SetupCommon {
+@@ -414,18 +459,13 @@ impl SetupCommon {
              );
          }
  
 -        tracing::info!(dir = ?data_dir, "Initializing redb storage");
 -        let redb_storage = RedbStorage::new(data_dir.clone())?;
--
++        let backend = open_storage(args, &data_dir, token).await?;
+ 
 -        // Optional localhost admin server for live inspection. Shares the redb
 -        // handle (Arc-cheap clone); queries run as MVCC read txns concurrent
 -        // with the live writer.
@@ -616,8 +714,7 @@ index 77ada8f..2fafbc9 100644
 -            crate::admin::start_admin_server(admin_addr, redb_storage.clone(), token.clone())
 -                .await?;
 -        }
-+        let backend = open_storage(args, &data_dir, token).await?;
- 
+-
 -        let storage = MetricsStorage::new(redb_storage);
 +        let object_storage = match &backend {
 +            CliStorage::Object(object_storage) => Some(object_storage.clone()),
@@ -627,7 +724,7 @@ index 77ada8f..2fafbc9 100644
  
          // Background metrics refresh
          if args.metrics {
-@@ -510,6 +541,7 @@ impl SetupCommon {
+@@ -510,6 +550,7 @@ impl SetupCommon {
              addr,
              data_dir,
              storage,
@@ -635,7 +732,7 @@ index 77ada8f..2fafbc9 100644
              seed,
              signer,
              peer_id,
-@@ -521,6 +553,36 @@ impl SetupCommon {
+@@ -521,6 +562,36 @@ impl SetupCommon {
      }
  }
  
@@ -672,7 +769,7 @@ index 77ada8f..2fafbc9 100644
  /// Build the Subduction instance and run the transport accept loops.
  ///
  /// Generic over the composed handler `H`. `keyhive_protocol` is `None` in open
-@@ -533,6 +595,7 @@ async fn serve<H, F>(
+@@ -533,6 +604,7 @@ async fn serve<H, F>(
      common: SetupCommon,
      storage_policy: Arc<CliKeyhivePolicyHandle>,
      keyhive_protocol: Option<CliKeyhiveProtocol>,
@@ -680,7 +777,16 @@ index 77ada8f..2fafbc9 100644
      make_handler: F,
  ) -> Result<()>
  where
-@@ -768,6 +831,7 @@ where
+@@ -553,7 +625,7 @@ where
+ 
+     let builder = SubductionBuilder::new()
+         .signer(signer.clone())
+-        .storage(storage, storage_policy)
++        .storage(storage, Arc::clone(&storage_policy))
+         .spawner(TokioSpawn)
+         .timer(FuturesTimerTimeout)
+         // Seeded so sequences resume above previous values across restarts;
+@@ -768,6 +840,7 @@ where
      let ws_keepalive = KeepAlive::balanced();
  
      let accept_keyhive = keyhive_protocol.clone();
@@ -688,7 +794,7 @@ index 77ada8f..2fafbc9 100644
      let accept_task = tokio::spawn(async move {
          accept_loop(
              tcp_listener,
-@@ -775,6 +839,8 @@ where
+@@ -775,6 +848,8 @@ where
              accept_ephemeral,
              accept_handler,
              accept_keyhive,
@@ -697,7 +803,48 @@ index 77ada8f..2fafbc9 100644
              accept_cancel,
              handshake_max_drift,
              max_message_size,
-@@ -1045,6 +1111,51 @@ fn publish_disk_usage(data_dir: &std::path::Path) {
+@@ -958,6 +1033,7 @@ where
+                 peer_max_message_size,
+                 peer_max_frame_size,
+                 peer_keepalive,
++                None,
+             )
+             .await
+             {
+@@ -971,6 +1047,32 @@ where
+         });
+     }
+ 
++    for peer_url in &args.ws_pull_peers {
++        let uri: Uri = match peer_url.parse() {
++            Ok(uri) => uri,
++            Err(e) => {
++                tracing::error!(url = %peer_url, error = %e, "Invalid pull peer URL");
++                continue;
++            }
++        };
++        let Some(host) = uri.host().map(str::to_owned) else {
++            tracing::error!(url = %peer_url, "Pull peer URL has no host");
++            continue;
++        };
++        tokio::spawn(pull_from_ws_peer(
++            uri,
++            host,
++            subduction.clone(),
++            ephemeral.clone(),
++            keyhive_protocol.clone(),
++            signer.clone(),
++            Arc::clone(&storage_policy),
++            token.clone(),
++            args.max_message_size,
++            args.max_frame_size(),
++        ));
++    }
++
+     // Write ready file if requested (for integration tests)
+     if let Some(ref ready_path) = args.ready_file {
+         let iroh_line = iroh_node_id
+@@ -1045,6 +1147,51 @@ fn publish_disk_usage(data_dir: &std::path::Path) {
      subduction_core::metrics::set_redb_file_bytes(redb_bytes);
  }
  
@@ -749,7 +896,7 @@ index 77ada8f..2fafbc9 100644
  /// Accept loop: routes incoming TCP connections to WebSocket or HTTP long-poll.
  #[allow(clippy::too_many_arguments)]
  async fn accept_loop<H: CliWireHandler>(
-@@ -1053,6 +1164,8 @@ async fn accept_loop<H: CliWireHandler>(
+@@ -1053,6 +1200,8 @@ async fn accept_loop<H: CliWireHandler>(
      ephemeral: CliEphemeralHandler,
      lp_handler: LongPollHandler<MemorySigner, FuturesTimerTimeout>,
      keyhive_proto: Option<CliKeyhiveProtocol>,
@@ -758,7 +905,7 @@ index 77ada8f..2fafbc9 100644
      cancel: CancellationToken,
      handshake_max_drift: Duration,
      max_message_size: usize,
-@@ -1080,20 +1193,25 @@ async fn accept_loop<H: CliWireHandler>(
+@@ -1080,20 +1229,25 @@ async fn accept_loop<H: CliWireHandler>(
                          let task_ephemeral = ephemeral.clone();
                          let task_handler = lp_handler.clone();
                          let task_keyhive = keyhive_proto.clone();
@@ -792,7 +939,7 @@ index 77ada8f..2fafbc9 100644
                              }
  
                              let is_http = peek_buf.starts_with(b"POST")
-@@ -1131,7 +1249,7 @@ async fn accept_loop<H: CliWireHandler>(
+@@ -1131,7 +1285,7 @@ async fn accept_loop<H: CliWireHandler>(
                              } else {
                                  tracing::warn!(
                                      addr = %addr,
@@ -801,7 +948,7 @@ index 77ada8f..2fafbc9 100644
                                      "unknown protocol"
                                  );
                              }
-@@ -1399,6 +1517,114 @@ async fn handle_http_longpoll<H: CliWireHandler>(
+@@ -1399,6 +1553,114 @@ async fn handle_http_longpoll<H: CliWireHandler>(
      }
  }
  
@@ -916,6 +1063,117 @@ index 77ada8f..2fafbc9 100644
  /// Wrap a connection in a keyhive adapter and register the peer.
  ///
  /// No-op when keyhive is disabled (`protocol` is `None`).
+@@ -1427,6 +1689,7 @@ async fn try_connect_ws<H: CliWireHandler>(
+     max_message_size: usize,
+     max_frame_size: usize,
+     keepalive: KeepAlive,
++    pull_only: Option<&CliKeyhivePolicyHandle>,
+ ) -> Result<PeerId, eyre::Error> {
+     let uri_str = uri.to_string();
+     tracing::info!(uri = %uri_str, service_name = %service_name, "Connecting to peer via discovery");
+@@ -1514,15 +1777,101 @@ async fn try_connect_ws<H: CliWireHandler>(
+     let remote_id = authenticated.peer_id();
+     tracing::info!(peer = %remote_id, "Handshake complete: connected to peer");
+ 
++    // Mark a pull-only peer before its connection is added, so it can never
++    // fetch, and leave it out of presence, which would relay to it.
++    if let Some(policy) = pull_only {
++        policy.add_pull_only(remote_id);
++    }
+     let auth_for_keyhive = authenticated.clone();
+     subduction.add_connection(authenticated).await?;
+-    ephemeral.subscribe_peer(remote_id).await;
++    if pull_only.is_none() {
++        ephemeral.subscribe_peer(remote_id).await;
++    }
+     notify_peer_connect(keyhive_proto, auth_for_keyhive).await;
+     tracing::info!(uri = %uri_str, "Connected to peer");
+ 
+     Ok(remote_id)
+ }
+ 
++/// Keep a connection to a `--ws-pull-peer` for as long as the server runs.
++/// Each time it connects, sync every document we hold with it (subscribing,
++/// so later changes are pushed to us), since subscriptions passed on for
++/// clients do not survive a reconnect; when it drops, connect again, backing
++/// off up to five minutes between failures.
++#[allow(clippy::too_many_arguments)]
++async fn pull_from_ws_peer<H: CliWireHandler>(
++    uri: Uri,
++    service_name: String,
++    subduction: CliSubduction<H>,
++    ephemeral: CliEphemeralHandler,
++    keyhive: Option<CliKeyhiveProtocol>,
++    signer: MemorySigner,
++    policy: Arc<CliKeyhivePolicyHandle>,
++    cancel: CancellationToken,
++    max_message_size: usize,
++    max_frame_size: usize,
++) {
++    const MAX_BACKOFF: Duration = Duration::from_secs(300);
++    let mut backoff = Duration::from_secs(1);
++    while !cancel.is_cancelled() {
++        match try_connect_ws(
++            uri.clone(),
++            &subduction,
++            &ephemeral,
++            keyhive.as_ref(),
++            &signer,
++            &service_name,
++            cancel.clone(),
++            max_message_size,
++            max_frame_size,
++            KeepAlive::balanced(),
++            Some(&policy),
++        )
++        .await
++        {
++            Ok(remote_id) => {
++                backoff = Duration::from_secs(1);
++                let started = Instant::now();
++                let (_, stats, conn_errs, doc_errs) = subduction
++                    .full_sync_with_peer(&remote_id, true, CallTimeout::Default)
++                    .await;
++                tracing::info!(
++                    uri = %uri,
++                    peer = %remote_id,
++                    commits_received = stats.commits_received,
++                    fragments_received = stats.fragments_received,
++                    commits_sent = stats.commits_sent,
++                    fragments_sent = stats.fragments_sent,
++                    connection_errors = conn_errs.len(),
++                    document_errors = doc_errs.len(),
++                    elapsed_ms = started.elapsed().as_millis(),
++                    "Pulled from peer"
++                );
++                // Stay idle while the connection lasts.
++                let mut tick = time::interval(Duration::from_secs(10));
++                loop {
++                    tokio::select! {
++                        () = cancel.cancelled() => return,
++                        _ = tick.tick() => {}
++                    }
++                    if !subduction.connected_peer_ids().await.contains(&remote_id) {
++                        tracing::warn!(uri = %uri, peer = %remote_id, "Pull peer disconnected");
++                        break;
++                    }
++                }
++            }
++            Err(e) => {
++                tracing::error!(uri = %uri, error = %e, retry_in = ?backoff, "Failed to connect to pull peer");
++                tokio::select! {
++                    () = cancel.cancelled() => return,
++                    () = time::sleep(backoff) => {}
++                }
++                backoff = (backoff * 2).min(MAX_BACKOFF);
++            }
++        }
++    }
++}
++
+ /// Connect to a peer via Iroh (QUIC) transport (outbound).
+ #[allow(clippy::too_many_arguments)]
+ async fn try_connect_iroh<H: CliWireHandler>(
 diff --git a/subduction_cli/src/storage.rs b/subduction_cli/src/storage.rs
 new file mode 100644
 index 0000000..3c03952
@@ -1380,4 +1638,261 @@ index 0000000..4919048
 +    let server = spawn_server("open", &"44".repeat(32), &[]).await;
 +    let resp = reqwest::get(server.url("/")).await.unwrap();
 +    assert_eq!(resp.status(), 404);
++}
+diff --git a/subduction_cli/tests/pull_peer.rs b/subduction_cli/tests/pull_peer.rs
+new file mode 100644
+index 0000000..d389f6d
+--- /dev/null
++++ b/subduction_cli/tests/pull_peer.rs
+@@ -0,0 +1,251 @@
++//! End-to-end test of `--ws-pull-peer`: a server takes a peer's data and
++//! gives none back.
++//!
++//! Server `down` pulls from server `up`. Each holds one commit of the same
++//! document before they meet (a server only syncs documents it knows). After
++//! they connect `down` has both commits and `up` still has only its own; a
++//! commit written to `up` afterwards reaches `down`, and one written to
++//! `down` never reaches `up`. A client subscribing at `down` to a document
++//! only `up` holds gets it, since `down` passes the subscription on.
++
++#![allow(
++    clippy::expect_used,
++    clippy::panic,
++    clippy::unwrap_used,
++    missing_docs,
++    unreachable_pub
++)]
++
++use std::{
++    collections::BTreeSet,
++    path::{Path, PathBuf},
++    process::{Child, Command, Stdio},
++    sync::Arc,
++    time::Duration,
++};
++
++use future_form::Sendable;
++use sedimentree_core::{
++    blob::Blob, depth::CountLeadingZeroBytes, id::SedimentreeId, loose_commit::id::CommitId,
++};
++use subduction_core::{
++    connection::test_utils::TokioSpawn,
++    handler::sync::SyncHandler,
++    policy::open::OpenPolicy,
++    storage::memory::MemoryStorage,
++    subduction::{Subduction, builder::SubductionBuilder},
++    timeout::call::CallTimeout,
++    timestamp::TimestampSeconds,
++    transport::message::MessageTransport,
++};
++use subduction_crypto::signer::memory::MemorySigner;
++use subduction_http_longpoll::{
++    client::HttpLongPollClient, http_client::reqwest_client::ReqwestHttpClient,
++    transport::HttpLongPollTransport,
++};
++use subduction_websocket::timeout::FuturesTimerTimeout;
++
++const SYNC_TIMEOUT: CallTimeout = CallTimeout::TimeoutMillis(10_000);
++// The pull peer greets `up` with its URL's host, so that is `up`'s name.
++const UP_NAME: &str = "127.0.0.1";
++const DOWN_NAME: &str = "pull-peer-test";
++
++type Client = Arc<
++    Subduction<
++        'static,
++        Sendable,
++        MemoryStorage,
++        MessageTransport<HttpLongPollTransport>,
++        SyncHandler<
++            Sendable,
++            MemoryStorage,
++            MessageTransport<HttpLongPollTransport>,
++            OpenPolicy,
++            CountLeadingZeroBytes,
++            TokioSpawn,
++        >,
++        OpenPolicy,
++        MemorySigner,
++        FuturesTimerTimeout,
++        TokioSpawn,
++        CountLeadingZeroBytes,
++    >,
++>;
++
++struct Server {
++    child: Child,
++    port: u16,
++}
++
++impl Drop for Server {
++    fn drop(&mut self) {
++        self.child.kill().ok();
++        self.child.wait().ok();
++    }
++}
++
++impl Server {
++    fn url(&self) -> String {
++        format!("http://127.0.0.1:{}", self.port)
++    }
++}
++
++fn cli_binary() -> PathBuf {
++    let mut path = std::env::current_exe().expect("test executable path");
++    path.pop();
++    path.pop();
++    path.push("subduction_cli");
++    path
++}
++
++#[allow(clippy::zombie_processes)] // killed and waited on in `Drop`
++async fn spawn_server(key_seed: &str, name: &str, data_dir: &Path, extra: &[&str]) -> Server {
++    let ready = data_dir.join("ready");
++    std::fs::remove_file(&ready).ok();
++    let child = Command::new(cli_binary())
++        .args(["server", "--socket", "127.0.0.1:0", "--auth", "open"])
++        .args(["--key-seed", key_seed, "--service-name", name])
++        .arg("--data-dir")
++        .arg(data_dir)
++        .arg("--ready-file")
++        .arg(&ready)
++        .args(extra)
++        .env("RUST_LOG", "info")
++        .stderr(Stdio::inherit())
++        .stdout(Stdio::null())
++        .spawn()
++        .expect("spawn server");
++    for _ in 0..300 {
++        if let Ok(content) = std::fs::read_to_string(&ready)
++            && let Some(port) = content
++                .lines()
++                .find_map(|l| l.strip_prefix("port="))
++                .and_then(|p| p.parse().ok())
++        {
++            return Server { child, port };
++        }
++        tokio::time::sleep(Duration::from_millis(100)).await;
++    }
++    panic!("server did not write its ready file");
++}
++
++async fn connect(base_url: &str, seed: u8, name: &str) -> Client {
++    let signer = MemorySigner::from_bytes(&[seed; 32]);
++    let (client, _handler, listener, manager): (Client, _, _, _) = SubductionBuilder::new()
++        .signer(signer.clone())
++        .storage(MemoryStorage::default(), Arc::new(OpenPolicy))
++        .spawner(TokioSpawn)
++        .timer(FuturesTimerTimeout)
++        .build::<Sendable, MessageTransport<HttpLongPollTransport>>();
++    tokio::spawn(listener);
++    tokio::spawn(manager);
++    let lp = HttpLongPollClient::new(base_url, ReqwestHttpClient::new());
++    let result = lp
++        .connect_discover(&signer, name, TimestampSeconds::now())
++        .await
++        .expect("long-poll connect");
++    tokio::spawn(result.poll_task);
++    tokio::spawn(result.send_task);
++    client
++        .add_connection(result.authenticated.map(MessageTransport::new))
++        .await
++        .expect("add_connection");
++    client
++}
++
++async fn write_commit(server: &Server, seed: u8, name: &str, id: SedimentreeId, tag: u8) {
++    let client = connect(&server.url(), seed, name).await;
++    client
++        .add_commit(id, CommitId::new([tag; 32]), BTreeSet::new(), Blob::new(vec![tag]))
++        .await
++        .expect("add commit");
++    let (ok, _, call_errs, io_errs) = client.full_sync_with_all_peers(SYNC_TIMEOUT).await;
++    assert!(ok && call_errs.is_empty() && io_errs.is_empty(), "write sync failed");
++    // The commit is sent without an ack: keep the client until it has landed.
++    for read_seed in 0x80..0xb0 {
++        if commits(server, read_seed, name, id).await.contains(&tag) {
++            return;
++        }
++        tokio::time::sleep(Duration::from_millis(100)).await;
++    }
++    panic!("{name} never stored commit {tag}");
++}
++
++/// The commit tags a fresh client sees on `server` for `id`.
++async fn commits(server: &Server, seed: u8, name: &str, id: SedimentreeId) -> BTreeSet<u8> {
++    let client = connect(&server.url(), seed, name).await;
++    client
++        .sync_with_all_peers(id, false, SYNC_TIMEOUT)
++        .await
++        .expect("read sync");
++    client
++        .get_commits(id)
++        .await
++        .unwrap_or_default()
++        .iter()
++        .map(|c| c.head().as_bytes()[0])
++        .collect()
++}
++
++async fn wait_for(server: &Server, name: &str, id: SedimentreeId, want: &[u8]) {
++    let want: BTreeSet<u8> = want.iter().copied().collect();
++    let mut seed = 0x40;
++    for _ in 0..30 {
++        seed += 1;
++        if commits(server, seed, name, id).await == want {
++            return;
++        }
++        tokio::time::sleep(Duration::from_millis(500)).await;
++    }
++    panic!("{name} never held commits {want:?}");
++}
++
++#[tokio::test]
++async fn pull_peer_takes_but_never_gives() {
++    let up_dir = tempfile::tempdir().expect("tmpdir");
++    let down_dir = tempfile::tempdir().expect("tmpdir");
++    let id = SedimentreeId::new([7; 32]);
++    let (up_seed, down_seed) = ("aa".repeat(32), "bb".repeat(32));
++
++    let up = spawn_server(&up_seed, UP_NAME, up_dir.path(), &[]).await;
++    write_commit(&up, 0x10, UP_NAME, id, 1).await;
++
++    // `down` learns the document first, then restarts pointed at `up`.
++    let down = spawn_server(&down_seed, DOWN_NAME, down_dir.path(), &[]).await;
++    write_commit(&down, 0x11, DOWN_NAME, id, 2).await;
++    drop(down);
++    let peer = format!("ws://127.0.0.1:{}", up.port);
++    let down = spawn_server(
++        &down_seed,
++        DOWN_NAME,
++        down_dir.path(),
++        &["--ws-pull-peer", &peer],
++    )
++    .await;
++
++    wait_for(&down, DOWN_NAME, id, &[1, 2]).await;
++    assert_eq!(commits(&up, 0x20, UP_NAME, id).await, [1].into());
++
++    // Live changes: `up`'s reach `down`, `down`'s stay put.
++    write_commit(&up, 0x12, UP_NAME, id, 3).await;
++    write_commit(&down, 0x13, DOWN_NAME, id, 4).await;
++    wait_for(&down, DOWN_NAME, id, &[1, 2, 3, 4]).await;
++    tokio::time::sleep(Duration::from_secs(2)).await;
++    assert_eq!(commits(&up, 0x21, UP_NAME, id).await, [1, 3].into());
++
++    // A document `down` has never seen comes through on a client's subscribe.
++    let other = SedimentreeId::new([8; 32]);
++    write_commit(&up, 0x14, UP_NAME, other, 5).await;
++    let client = connect(&down.url(), 0x30, DOWN_NAME).await;
++    client
++        .sync_with_all_peers(other, true, SYNC_TIMEOUT)
++        .await
++        .expect("subscribe");
++    for _ in 0..50 {
++        if client.get_commits(other).await.is_some_and(|c| !c.is_empty()) {
++            break;
++        }
++        tokio::time::sleep(Duration::from_millis(100)).await;
++    }
++    wait_for(&down, DOWN_NAME, other, &[5]).await;
 +}

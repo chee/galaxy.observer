@@ -23,6 +23,13 @@ The patch gives the server:
 - `GET /.well-known/keyhive/contact-card.json` (also `/contact-card.json` and
   `/contact-card`): the server's keyhive contact
   card.
+- `--ws-pull-peer <URL>`: pull from another server without pushing to it.
+  Like any peer the server dials, a client's subscription to a document is
+  passed on to it, so documents only it holds come through. On every
+  (re)connect the server also syncs each document it holds with the peer and
+  subscribes. The peer is refused every fetch and gets no document data or
+  presence; keyhive ops flow both ways. It is greeted with the URL's host as
+  its service name.
 - `--static-dir <DIR>`: serve files to plain `GET` requests on the sync port.
   Each plain request gets its own connection, so a client's later WebSocket
   upgrade never lands on a page connection.
@@ -35,6 +42,7 @@ The patch gives the server:
 | `SUBDUCTION_AUTH` | `keyhive` | `open` turns keyhive off |
 | `SUBDUCTION_OBJECT_STORE` | unset | `s3://bucket/prefix`; unset stores on the `/data` volume |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_ENDPOINT_URL` | | bucket credentials and endpoint |
+| `SUBDUCTION_PULL_PEERS` | unset | space-separated `wss://` URLs to pull from but never push to, e.g. `wss://subduction.sync.inkandswitch.com` |
 | `SUBDUCTION_KEY_SEED` | unset | 64 hex characters; unset generates a key at `/data/key` |
 | `PORT` | `8080` | |
 
