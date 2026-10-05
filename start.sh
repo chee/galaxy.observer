@@ -27,10 +27,18 @@ done
 # from the environment itself.
 #
 # SERVICE_NAME must equal the host clients put in their URL or the handshake fails.
+#
+# --serve-iroh-relay makes the same port an iroh relay: iroh endpoints use
+# https://$SERVICE_NAME as their relay URL. --iroh also syncs over iroh, with
+# that relay as home: Railway routes no inbound UDP, so peers reach the
+# server through it. Its endpoint ID is its peer ID.
 exec subduction_cli server \
 	--socket "0.0.0.0:${PORT:-8080}" \
 	--data-dir "$DATA_DIR/store" \
 	--service-name "${SERVICE_NAME:-galaxy.observer}" \
 	--auth "${SUBDUCTION_AUTH:-keyhive}" \
 	--static-dir /srv/public \
+	--serve-iroh-relay \
+	--iroh \
+	--iroh-relay-url "https://${SERVICE_NAME:-galaxy.observer}" \
 	"$@"
