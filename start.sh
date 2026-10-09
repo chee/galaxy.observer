@@ -22,6 +22,12 @@ for url in ${SUBDUCTION_PULL_PEERS:-}; do
 	set -- "$@" --ws-pull-peer "$url"
 done
 
+# SUBDUCTION_IROH_PULL_PEERS: the same over iroh, as space-separated
+# ENDPOINT_ID@SERVICE_NAME.
+for peer in ${SUBDUCTION_IROH_PULL_PEERS:-}; do
+	set -- "$@" --iroh-pull-peer "$peer"
+done
+
 # Storage is redb under $DATA_DIR/store unless SUBDUCTION_OBJECT_STORE names a
 # bucket (s3://bucket/prefix, with AWS_* credentials), which the server reads
 # from the environment itself.

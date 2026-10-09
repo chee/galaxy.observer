@@ -1,0 +1,4 @@
+[toolchain]
+# Match upstream subduction's pinned toolchain.
+channel = "1.91.0"
+components = ["clippy", "rustfmt"]

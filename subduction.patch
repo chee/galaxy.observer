@@ -3050,3 +3050,1486 @@ index 0000000..8cd01be
 +    assert_eq!(received, 1, "first answer should carry up's commit");
 +    wait_for(&down, DOWN_NAME, other, &[5]).await;
 +}
+diff --git a/subduction_core/src/handler/sync.rs b/subduction_core/src/handler/sync.rs
+index dc8bdcf..5bb53fb 100644
+--- a/subduction_core/src/handler/sync.rs
++++ b/subduction_core/src/handler/sync.rs
+@@ -52,6 +52,9 @@ use crate::{
+     },
+ };
+ 
++mod in_flight;
++
++use self::in_flight::{InFlight, Item as InFlightItem};
+ use super::Handler;
+ use crate::{
+     peer::counter::PeerCounter,
+@@ -94,6 +97,8 @@ pub struct SyncHandler<
+     heads_notifier: FilteredHeadsNotifier<R>,
+     send_counter: PeerCounter,
+     spawner: Sp,
++    /// Commits and fragments being saved, which sync diffs count as held.
++    in_flight: InFlight,
+     /// Windowed per-peer counts of inbound `BatchSyncRequest`s; see
+     /// [`requestor_tally`](crate::metrics::requestor_tally). `Arc`-shared so
+     /// an operator loop can drain it without reaching through the handler.
+@@ -138,6 +143,7 @@ impl<
+             heads_notifier: self.heads_notifier.clone(),
+             send_counter: self.send_counter.clone(),
+             spawner: self.spawner.clone(),
++            in_flight: self.in_flight.clone(),
+             #[cfg(feature = "metrics")]
+             requestor_tally: Arc::clone(&self.requestor_tally),
+         }
+@@ -179,6 +185,7 @@ impl<
+             heads_notifier: FilteredHeadsNotifier::new(NoRemoteHeadsObserver),
+             send_counter: PeerCounter::default(),
+             spawner,
++            in_flight: InFlight::default(),
+             #[cfg(feature = "metrics")]
+             requestor_tally: Arc::default(),
+         }
+@@ -216,6 +223,7 @@ impl<
+             heads_notifier: FilteredHeadsNotifier::new(remote_heads_observer),
+             send_counter: PeerCounter::default(),
+             spawner,
++            in_flight: InFlight::default(),
+             #[cfg(feature = "metrics")]
+             requestor_tally: Arc::default(),
+         }
+@@ -307,7 +315,8 @@ impl<Async: FutureForm, Store, Conn, Auth, Metric, Sp, R, const SHARDS: usize> H
+             // Ingest + storage run here, on the per-peer dispatch permit. The
+             // subscription fan-out is spawned OFF the permit so a slow
+             // subscriber backpressures a detached task instead of stalling
+-            // inbound dispatch for this peer.
++            // inbound dispatch for this peer. (A commit or fragment pushed to
++            // us fans out before its save; only the ack is left by then.)
+             if let Some(fanout) = self.dispatch(conn, message).await? {
+                 self.spawner.spawn(Async::from_future(fanout.run()));
+             }
+@@ -352,6 +361,11 @@ impl<
+ /// subscriber backpressures a detached task instead of holding the per-peer
+ /// dispatch permit. Per-peer send counters are stamped in order *before* the
+ /// spawn; `run` only performs the wire sends.
++///
++/// A commit or fragment pushed to us is split in two: its pushes are spawned
++/// as soon as it is verified and found new, before it is saved, so
++/// subscribers never wait on storage; the ack to its sender is a second
++/// `FanOut`, built once the save has finished.
+ #[allow(clippy::type_complexity)]
+ struct FanOut<Conn, Async>
+ where
+@@ -415,6 +429,28 @@ where
+     }
+ }
+ 
++/// A [`FanOut`] as a future the handler's [`Spawn`] takes, for code generic
++/// over the future form (the receive paths spawn pushes mid-dispatch).
++trait SpawnFanOut<Conn>: FutureForm + Sized
++where
++    Conn: Connection<Self, SyncMessage> + PartialEq + Clone + 'static,
++{
++    fn fan_out(fan_out: FanOut<Conn, Self>) -> Self::Future<'static, ()>;
++}
++
++#[future_form(
++    Sendable where
++        Conn: Connection<Sendable, SyncMessage> + PartialEq + Clone + Send + Sync + 'static,
++        Conn::SendError: Send + 'static,
++    Local where
++        Conn: Connection<Local, SyncMessage> + PartialEq + Clone + 'static
++)]
++impl<Async: FutureForm, Conn> SpawnFanOut<Conn> for Async {
++    fn fan_out(fan_out: FanOut<Conn, Self>) -> Self::Future<'static, ()> {
++        Async::from_future(fan_out.run())
++    }
++}
++
+ // ---------------------------------------------------------------------------
+ // Dispatch + recv_* methods (self-contained copies from Subduction)
+ // ---------------------------------------------------------------------------
+@@ -435,7 +471,10 @@ impl<
+         &self,
+         conn: &Authenticated<Conn, Async>,
+         message: SyncMessage,
+-    ) -> Result<Option<FanOut<Conn, Async>>, ListenError<Async, Store, Conn, SyncMessage>> {
++    ) -> Result<Option<FanOut<Conn, Async>>, ListenError<Async, Store, Conn, SyncMessage>>
++    where
++        Async: SpawnFanOut<Conn>,
++    {
+         let from = conn.peer_id();
+ 
+         let span = tracing::debug_span!(
+@@ -463,7 +502,10 @@ impl<
+         from: PeerId,
+         message: SyncMessage,
+         conn: &Authenticated<Conn, Async>,
+-    ) -> Result<Option<FanOut<Conn, Async>>, ListenError<Async, Store, Conn, SyncMessage>> {
++    ) -> Result<Option<FanOut<Conn, Async>>, ListenError<Async, Store, Conn, SyncMessage>>
++    where
++        Async: SpawnFanOut<Conn>,
++    {
+         // Note: remote heads arrive via three paths:
+         //
+         // 1. `responder_heads` in `BatchSyncResponse` — handled by
+@@ -561,7 +603,10 @@ impl<
+         signed_commit: &Signed<LooseCommit>,
+         blob: Blob,
+         conn: &Authenticated<Conn, Async>,
+-    ) -> Result<Option<FanOut<Conn, Async>>, IoError<Async, Store, Conn, SyncMessage>> {
++    ) -> Result<Option<FanOut<Conn, Async>>, IoError<Async, Store, Conn, SyncMessage>>
++    where
++        Async: SpawnFanOut<Conn>,
++    {
+         let verified = match signed_commit.try_verify() {
+             Ok(v) => v,
+             Err(e) => {
+@@ -617,38 +662,71 @@ impl<
+             }
+         };
+ 
+-        let was_new = self
+-            .insert_commit_locally(&putter, verified_meta)
++        // Push to subscribers before saving, so the commit reaches them without
++        // waiting on storage; the pushes carry the heads the tree will have
++        // once it is saved. The ack follows the save, so the author hears the
++        // commit is stored only once it is. Until the save is done, sync
++        // requests count the commit as held rather than asking for it again.
++        let heads_with = self
++            .preview_commit(&putter, verified_meta.payload())
+             .await
+             .map_err(IoError::Storage)?;
++        let saving = match &heads_with {
++            Some(heads) => {
++                let head = verified_meta.payload().head();
++                let saving = self.in_flight.begin(id, InFlightItem::Commit(head)).await;
++                let conns = self.get_authorized_subscriber_conns(id, from).await;
++                let pushes = self
++                    .build_loose_commit_pushes(id, &signed_for_wire, &blob, heads, conns)
++                    .await;
++                self.push_now(pushes);
++                Some(saving)
++            }
++            None => None,
++        };
+ 
+-        let fanout = if was_new {
+-            let heads = self.heads_for(id).await;
++        self.persist_commit_locally(&putter, verified_meta)
++            .await
++            .map_err(IoError::Storage)?;
++        drop(saving);
+ 
+-            // Ack the originating peer; stamp per-subscriber counters in order
+-            // now (before the spawn), then defer the wire sends to `FanOut`.
+-            let ack_msg = SyncMessage::HeadsUpdate {
+-                id,
+-                heads: RemoteHeads {
+-                    counter: self.send_counter.next(*from).await,
+-                    heads: heads.clone(),
+-                },
+-            };
++        Ok(match heads_with {
++            Some(_) => Some(self.ack(conn, *from, id).await),
++            None => None,
++        })
++    }
+ 
+-            let conns = self.get_authorized_subscriber_conns(id, from).await;
+-            let pushes = self
+-                .build_loose_commit_pushes(id, &signed_for_wire, &blob, &heads, conns)
+-                .await;
++    /// Send subscription pushes now, on a detached task, rather than after the
++    /// dispatch that built them returns.
++    fn push_now(&self, pushes: Vec<(Authenticated<Conn, Async>, SyncMessage)>)
++    where
++        Async: SpawnFanOut<Conn>,
++    {
++        if !pushes.is_empty() {
++            self.spawner
++                .spawn(Async::fan_out(FanOut { ack: None, pushes }));
++        }
++    }
+ 
+-            Some(FanOut {
+-                ack: Some((conn.clone(), ack_msg)),
+-                pushes,
+-            })
+-        } else {
+-            None
++    /// The `HeadsUpdate` ack telling `from` the tree's heads now that what it
++    /// sent is stored. Sent off the dispatch permit, like the pushes.
++    async fn ack(
++        &self,
++        conn: &Authenticated<Conn, Async>,
++        from: PeerId,
++        id: SedimentreeId,
++    ) -> FanOut<Conn, Async> {
++        let ack_msg = SyncMessage::HeadsUpdate {
++            id,
++            heads: RemoteHeads {
++                counter: self.send_counter.next(from).await,
++                heads: self.heads_for(id).await,
++            },
+         };
+-
+-        Ok(fanout)
++        FanOut {
++            ack: Some((conn.clone(), ack_msg)),
++            pushes: Vec::new(),
++        }
+     }
+ 
+     /// Build the per-subscriber `LooseCommit` pushes, stamping each peer's send
+@@ -713,7 +791,10 @@ impl<
+         signed_fragment: &Signed<Fragment>,
+         blob: Blob,
+         conn: &Authenticated<Conn, Async>,
+-    ) -> Result<Option<FanOut<Conn, Async>>, IoError<Async, Store, Conn, SyncMessage>> {
++    ) -> Result<Option<FanOut<Conn, Async>>, IoError<Async, Store, Conn, SyncMessage>>
++    where
++        Async: SpawnFanOut<Conn>,
++    {
+         let verified = match signed_fragment.try_verify() {
+             Ok(v) => v,
+             Err(e) => {
+@@ -766,36 +847,35 @@ impl<
+             }
+         };
+ 
+-        let was_new = self
+-            .insert_fragment_locally(&putter, verified_meta)
++        // Held while saving, pushed before saving, acked after; see
++        // `recv_commit`.
++        let heads_with = self
++            .preview_fragment(&putter, verified_meta.payload())
+             .await
+             .map_err(IoError::Storage)?;
+-
+-        let fanout = if was_new {
+-            let heads = self.heads_for(id).await;
+-
+-            let ack_msg = SyncMessage::HeadsUpdate {
+-                id,
+-                heads: RemoteHeads {
+-                    counter: self.send_counter.next(*from).await,
+-                    heads: heads.clone(),
+-                },
+-            };
+-
+-            let conns = self.get_authorized_subscriber_conns(id, from).await;
+-            let pushes = self
+-                .build_fragment_pushes(id, &signed_for_wire, &blob, &heads, conns)
+-                .await;
+-
+-            Some(FanOut {
+-                ack: Some((conn.clone(), ack_msg)),
+-                pushes,
+-            })
+-        } else {
+-            None
++        let saving = match &heads_with {
++            Some(heads) => {
++                let head = verified_meta.payload().head();
++                let saving = self.in_flight.begin(id, InFlightItem::Fragment(head)).await;
++                let conns = self.get_authorized_subscriber_conns(id, from).await;
++                let pushes = self
++                    .build_fragment_pushes(id, &signed_for_wire, &blob, heads, conns)
++                    .await;
++                self.push_now(pushes);
++                Some(saving)
++            }
++            None => None,
+         };
+ 
+-        Ok(fanout)
++        self.persist_fragment_locally(&putter, verified_meta)
++            .await
++            .map_err(IoError::Storage)?;
++        drop(saving);
++
++        Ok(match heads_with {
++            Some(_) => Some(self.ack(conn, *from, id).await),
++            None => None,
++        })
+     }
+ 
+     #[allow(clippy::too_many_lines)]
+@@ -1073,11 +1153,22 @@ impl<
+ 
+         let ResponderDiff {
+             heads,
+-            requesting_commit_fingerprints,
+-            requesting_fragment_fingerprints,
++            mut requesting_commit_fingerprints,
++            mut requesting_fragment_fingerprints,
+             ..
+         } = diff;
+ 
++        // Don't ask for what we are saving: it isn't in the tree the diff
++        // read yet, but it will be.
++        for item in self.in_flight.items(id).await {
++            let (requesting, held) = match item {
++                InFlightItem::Commit(head) => (&mut requesting_commit_fingerprints, head),
++                InFlightItem::Fragment(head) => (&mut requesting_fragment_fingerprints, head),
++            };
++            let held = Fingerprint::new(their_fingerprints.seed(), &held);
++            requesting.retain(|fingerprint| *fingerprint != held);
++        }
++
+         let responder_heads = RemoteHeads {
+             counter: self.send_counter.next(conn.peer_id()).await,
+             heads,
+@@ -1146,20 +1237,36 @@ impl<
+     // Delegating helpers — logic lives in `ingest` and `peers` modules
+     // -----------------------------------------------------------------------
+ 
+-    async fn insert_commit_locally(
++    async fn preview_commit(
++        &self,
++        putter: &Putter<Async, Store>,
++        commit: &LooseCommit,
++    ) -> Result<Option<Vec<CommitId>>, Store::Error> {
++        ingest::preview_commit(&self.sedimentrees, putter, &self.depth_metric, commit).await
++    }
++
++    async fn persist_commit_locally(
+         &self,
+         putter: &Putter<Async, Store>,
+         verified_meta: VerifiedMeta<LooseCommit>,
+-    ) -> Result<bool, Store::Error> {
+-        ingest::insert_commit_locally(&self.sedimentrees, putter, verified_meta).await
++    ) -> Result<(), Store::Error> {
++        ingest::persist_commit_locally(&self.sedimentrees, putter, verified_meta).await
++    }
++
++    async fn preview_fragment(
++        &self,
++        putter: &Putter<Async, Store>,
++        fragment: &Fragment,
++    ) -> Result<Option<Vec<CommitId>>, Store::Error> {
++        ingest::preview_fragment(&self.sedimentrees, putter, &self.depth_metric, fragment).await
+     }
+ 
+-    async fn insert_fragment_locally(
++    async fn persist_fragment_locally(
+         &self,
+         putter: &Putter<Async, Store>,
+         verified_meta: VerifiedMeta<Fragment>,
+-    ) -> Result<bool, Store::Error> {
+-        ingest::insert_fragment_locally(&self.sedimentrees, putter, verified_meta).await
++    ) -> Result<(), Store::Error> {
++        ingest::persist_fragment_locally(&self.sedimentrees, putter, verified_meta).await
+     }
+ 
+     async fn minimize_tree(&self, id: SedimentreeId) {
+diff --git a/subduction_core/src/handler/sync/in_flight.rs b/subduction_core/src/handler/sync/in_flight.rs
+new file mode 100644
+index 0000000..7789801
+--- /dev/null
++++ b/subduction_core/src/handler/sync/in_flight.rs
+@@ -0,0 +1,135 @@
++//! Commits and fragments whose saves are under way.
++//!
++//! A commit pushed to us is saved before it joins the in-memory tree that
++//! sync diffs read (storage is the source of truth). A sync request landing
++//! while the save runs would see the commit as missing and ask its sender for
++//! it again; with slow storage (an fsync'd redb write, an object store `PUT`)
++//! a requestor waiting for a round that moves nothing never gets one. So the
++//! responder counts what is in flight as held.
++//!
++//! An entry lasts exactly as long as the [`Saving`] token its save holds. The
++//! register keeps only a [`Weak`] to the token, so a save that fails, or
++//! whose dispatch is dropped mid-write, takes its entry with it even when
++//! the register is locked at that moment.
++
++use alloc::{
++    sync::{Arc, Weak},
++    vec::Vec,
++};
++use async_lock::Mutex;
++use sedimentree_core::{collections::Map, id::SedimentreeId, loose_commit::id::CommitId};
++
++/// An item being saved: a loose commit by its id, or a fragment by its head.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub(super) enum Item {
++    Commit(CommitId),
++    Fragment(CommitId),
++}
++
++type Trees = Map<SedimentreeId, Vec<(Item, Weak<()>)>>;
++
++/// The register of in-flight saves. Cheap to clone; clones share it.
++#[derive(Debug, Default, Clone)]
++pub(super) struct InFlight {
++    trees: Arc<Mutex<Trees>>,
++}
++
++impl InFlight {
++    /// Count `item` of `tree` as held until the returned token is dropped.
++    pub(super) async fn begin(&self, tree: SedimentreeId, item: Item) -> Saving {
++        let token = Arc::new(());
++        let mut trees = self.trees.lock().await;
++        let items = trees.entry(tree).or_default();
++        items.retain(|(_, saving)| saving.strong_count() > 0);
++        items.push((item, Arc::downgrade(&token)));
++        Saving {
++            token,
++            tree,
++            trees: Arc::clone(&self.trees),
++        }
++    }
++
++    /// What of `tree` is being saved now.
++    pub(super) async fn items(&self, tree: SedimentreeId) -> Vec<Item> {
++        let mut trees = self.trees.lock().await;
++        let Some(items) = trees.get_mut(&tree) else {
++            return Vec::new();
++        };
++        items.retain(|(_, saving)| saving.strong_count() > 0);
++        let held: Vec<Item> = items.iter().map(|(item, _)| *item).collect();
++        if held.is_empty() {
++            trees.remove(&tree);
++        }
++        held
++    }
++}
++
++/// Held while an item is saved; dropping it ends the item's flight.
++#[must_use = "the item is only in flight while this is held"]
++#[derive(Debug)]
++pub(super) struct Saving {
++    token: Arc<()>,
++    tree: SedimentreeId,
++    trees: Arc<Mutex<Trees>>,
++}
++
++impl Drop for Saving {
++    fn drop(&mut self) {
++        // Tidy up now if the register is free. If not, the entry is already
++        // inert (its token goes with this) and the next look at the tree
++        // prunes it.
++        let Some(mut trees) = self.trees.try_lock() else {
++            return;
++        };
++        let this = Arc::downgrade(&self.token);
++        if let Some(items) = trees.get_mut(&self.tree) {
++            items.retain(|(_, saving)| !Weak::ptr_eq(saving, &this) && saving.strong_count() > 0);
++            if items.is_empty() {
++                trees.remove(&self.tree);
++            }
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::{InFlight, Item};
++    use sedimentree_core::{id::SedimentreeId, loose_commit::id::CommitId};
++
++    const TREE: SedimentreeId = SedimentreeId::new([1; 32]);
++    const COMMIT: Item = Item::Commit(CommitId::new([2; 32]));
++    const FRAGMENT: Item = Item::Fragment(CommitId::new([3; 32]));
++
++    #[test]
++    fn an_item_is_held_while_its_token_is() {
++        futures::executor::block_on(async {
++            let in_flight = InFlight::default();
++            let commit = in_flight.begin(TREE, COMMIT).await;
++            let fragment = in_flight.begin(TREE, FRAGMENT).await;
++            assert_eq!(in_flight.items(TREE).await, [COMMIT, FRAGMENT]);
++            assert!(in_flight.items(SedimentreeId::new([9; 32])).await.is_empty());
++
++            drop(commit);
++            assert_eq!(in_flight.items(TREE).await, [FRAGMENT]);
++            drop(fragment);
++            assert!(in_flight.items(TREE).await.is_empty());
++            assert!(in_flight.trees.lock().await.is_empty(), "nothing left over");
++        });
++    }
++
++    /// A token dropped while the register is locked (so its `Drop` can't
++    /// tidy up) still ends the item's flight.
++    #[test]
++    fn a_token_dropped_under_contention_still_ends_the_flight() {
++        futures::executor::block_on(async {
++            let in_flight = InFlight::default();
++            let saving = in_flight.begin(TREE, COMMIT).await;
++            {
++                let _locked = in_flight.trees.lock().await;
++                drop(saving);
++            }
++            assert!(in_flight.items(TREE).await.is_empty());
++            assert!(in_flight.trees.lock().await.is_empty(), "pruned on the next look");
++        });
++    }
++}
+diff --git a/subduction_core/src/subduction/ingest.rs b/subduction_core/src/subduction/ingest.rs
+index 52befd5..ede415c 100644
+--- a/subduction_core/src/subduction/ingest.rs
++++ b/subduction_core/src/subduction/ingest.rs
+@@ -310,10 +310,10 @@ pub(crate) async fn insert_commit_locally<
+     verified_meta: VerifiedMeta<LooseCommit>,
+ ) -> Result<bool, Store::Error> {
+     let id = putter.sedimentree_id();
+-    let commit = verified_meta.payload().clone();
++    let commit = verified_meta.payload();
+     let head = commit.head();
+ 
+-    tracing::debug!(digest = ?Digest::hash(&commit), "inserting commit locally");
++    tracing::debug!(digest = ?Digest::hash(commit), "inserting commit locally");
+ 
+     // Newness ("was this commit not already known?") is judged against the
+     // tree state *before* persisting. Read it from the resident cache, or
+@@ -330,6 +330,58 @@ pub(crate) async fn insert_commit_locally<
+         .await?
+         .unwrap_or(true);
+ 
++    persist_commit_locally(sedimentrees, putter, verified_meta).await?;
++    Ok(was_added)
++}
++
++/// Whether a commit is new to its tree, judged before anything is saved (see
++/// [`insert_commit_locally`]), and if so the heads the tree will have once it
++/// is added.
++///
++/// The heads are computed on a copy, so the cached tree is untouched until
++/// [`persist_commit_locally`] has saved the commit: forwarding a commit with
++/// these heads while the save is in flight never makes the cache claim
++/// something storage does not hold.
++pub(crate) async fn preview_commit<
++    Async: FutureForm,
++    Store: Storage<Async>,
++    Metric: DepthMetric,
++    const SHARDS: usize,
++>(
++    sedimentrees: &BoundedShardedMap<SedimentreeId, MinimizedSedimentree, SHARDS>,
++    putter: &Putter<Async, Store>,
++    depth_metric: &Metric,
++    commit: &LooseCommit,
++) -> Result<Option<Vec<CommitId>>, Store::Error> {
++    let head = commit.head();
++    let with_commit = |tree: &MinimizedSedimentree| {
++        let mut next = tree.clone();
++        next.add_commit(commit.clone());
++        next.heads(depth_metric)
++    };
++    let previewed = sedimentrees
++        .with_hydrated_ref(
++            putter.sedimentree_id(),
++            || load_tree_via_putter::<Async, _>(putter),
++            |tree| (!tree.has_loose_commit(head)).then(|| with_commit(tree)),
++        )
++        .await?;
++    // `None`: not in storage, so a brand-new tree.
++    Ok(previewed.unwrap_or_else(|| Some(with_commit(&MinimizedSedimentree::default()))))
++}
++
++/// Save a verified commit, then add it to the in-memory tree.
++pub(crate) async fn persist_commit_locally<
++    Async: FutureForm,
++    Store: Storage<Async>,
++    const SHARDS: usize,
++>(
++    sedimentrees: &BoundedShardedMap<SedimentreeId, MinimizedSedimentree, SHARDS>,
++    putter: &Putter<Async, Store>,
++    verified_meta: VerifiedMeta<LooseCommit>,
++) -> Result<(), Store::Error> {
++    let commit = verified_meta.payload().clone();
++
+     // Persist before the in-RAM mutation: storage is the source of truth; the
+     // map is a cache that re-hydrates from it.
+     putter.save_commit(verified_meta).await?;
+@@ -340,7 +392,7 @@ pub(crate) async fn insert_commit_locally<
+     // is a harmless no-op and the resident tree is the full, correct history.
+     sedimentrees
+         .with_entry_hydrated(
+-            id,
++            putter.sedimentree_id(),
+             || load_tree_via_putter::<Async, _>(putter),
+             |tree| {
+                 tree.add_commit(commit);
+@@ -348,7 +400,7 @@ pub(crate) async fn insert_commit_locally<
+         )
+         .await?;
+ 
+-    Ok(was_added)
++    Ok(())
+ }
+ 
+ /// Insert a verified fragment into storage and the in-memory tree.
+@@ -364,8 +416,7 @@ pub(crate) async fn insert_fragment_locally<
+     verified_meta: VerifiedMeta<Fragment>,
+ ) -> Result<bool, Store::Error> {
+     let id = putter.sedimentree_id();
+-    let fragment = verified_meta.payload().clone();
+-    let head = fragment.head();
++    let head = verified_meta.payload().head();
+ 
+     // Newness from pre-save tree state (resident or hydrated); see
+     // `insert_commit_locally`.
+@@ -378,12 +429,59 @@ pub(crate) async fn insert_fragment_locally<
+         .await?
+         .unwrap_or(true);
+ 
++    persist_fragment_locally(sedimentrees, putter, verified_meta).await?;
++    Ok(was_added)
++}
++
++/// Whether a fragment is new to its tree, and if so the heads the tree will
++/// have once it is added. See [`preview_commit`].
++pub(crate) async fn preview_fragment<
++    Async: FutureForm,
++    Store: Storage<Async>,
++    Metric: DepthMetric,
++    const SHARDS: usize,
++>(
++    sedimentrees: &BoundedShardedMap<SedimentreeId, MinimizedSedimentree, SHARDS>,
++    putter: &Putter<Async, Store>,
++    depth_metric: &Metric,
++    fragment: &Fragment,
++) -> Result<Option<Vec<CommitId>>, Store::Error> {
++    let head = fragment.head();
++    let with_fragment = |tree: &MinimizedSedimentree| {
++        let mut next = tree.clone();
++        next.add_fragment(fragment.clone());
++        next.heads(depth_metric)
++    };
++    let previewed = sedimentrees
++        .with_hydrated_ref(
++            putter.sedimentree_id(),
++            || load_tree_via_putter::<Async, _>(putter),
++            |tree| (!tree.has_fragment(head)).then(|| with_fragment(tree)),
++        )
++        .await?;
++    // `None`: not in storage, so a brand-new tree.
++    Ok(previewed.unwrap_or_else(|| Some(with_fragment(&MinimizedSedimentree::default()))))
++}
++
++/// Save a verified fragment, then add it to the in-memory tree. See
++/// [`persist_commit_locally`].
++pub(crate) async fn persist_fragment_locally<
++    Async: FutureForm,
++    Store: Storage<Async>,
++    const SHARDS: usize,
++>(
++    sedimentrees: &BoundedShardedMap<SedimentreeId, MinimizedSedimentree, SHARDS>,
++    putter: &Putter<Async, Store>,
++    verified_meta: VerifiedMeta<Fragment>,
++) -> Result<(), Store::Error> {
++    let fragment = verified_meta.payload().clone();
++
+     // Persist before the in-RAM mutation; see `insert_commit_locally`.
+     putter.save_fragment(verified_meta).await?;
+ 
+     sedimentrees
+         .with_entry_hydrated(
+-            id,
++            putter.sedimentree_id(),
+             || load_tree_via_putter::<Async, _>(putter),
+             |tree| {
+                 tree.add_fragment(fragment);
+@@ -391,7 +489,7 @@ pub(crate) async fn insert_fragment_locally<
+         )
+         .await?;
+ 
+-    Ok(was_added)
++    Ok(())
+ }
+ 
+ /// Re-minimize a sedimentree in the in-memory cache.
+diff --git a/subduction_core/tests/forward_before_save.rs b/subduction_core/tests/forward_before_save.rs
+new file mode 100644
+index 0000000..0b17647
+--- /dev/null
++++ b/subduction_core/tests/forward_before_save.rs
+@@ -0,0 +1,440 @@
++//! A commit or fragment pushed to a node reaches the node's other subscribers
++//! without waiting for the node to save it; the sender's `HeadsUpdate` ack
++//! waits for the save, and while it runs the node doesn't ask for the item
++//! again.
++//!
++//! The node's storage holds every commit and fragment save until the test
++//! opens a gate, standing in for an object store's write latency.
++//!
++//! ```text
++//!   A ──LooseCommit──▸ S ──LooseCommit──▸ B (subscribed)
++//!                      │
++//!                      └── save held … then HeadsUpdate ──▸ A
++//! ```
++#![allow(clippy::expect_used, clippy::panic)]
++
++use std::{collections::BTreeSet, sync::Arc, time::Duration};
++
++use future_form::Sendable;
++use futures::future::BoxFuture;
++use sedimentree_core::{
++    blob::{Blob, BlobMeta},
++    collections::Set,
++    crypto::fingerprint::{Fingerprint, FingerprintSeed},
++    depth::CountLeadingZeroBytes,
++    fragment::Fragment,
++    id::SedimentreeId,
++    loose_commit::{LooseCommit, id::CommitId},
++    sedimentree::FingerprintSummary,
++};
++use subduction_core::{
++    authenticated::{Authenticated, Direction},
++    connection::{
++        message::{BatchSyncRequest, RequestId, SyncDiff, SyncMessage, SyncResult},
++        test_utils::{ChannelMockConnectionHandle, InstantTimeout, TokioSpawn, test_signer},
++    },
++    handler::sync::SyncHandler,
++    peer::id::PeerId,
++    policy::open::OpenPolicy,
++    remote_heads::RemoteHeads,
++    storage::{memory::MemoryStorage, traits::Storage},
++    subduction::{Subduction, builder::SubductionBuilder},
++    test_utils::{MockConn, make_signer, subscribe_request, wait_until},
++};
++use subduction_crypto::{signed::Signed, signer::memory::MemorySigner, verified_meta::VerifiedMeta};
++use testresult::TestResult;
++use tokio::sync::watch;
++
++/// How long to wait for a frame that must arrive.
++const WIRE_TIMEOUT: Duration = Duration::from_secs(5);
++
++/// [`MemoryStorage`] whose commit and fragment saves wait until the gate opens.
++#[derive(Debug, Clone)]
++struct GatedStorage {
++    inner: MemoryStorage,
++    open: watch::Receiver<bool>,
++}
++
++impl GatedStorage {
++    async fn wait(&self) {
++        let mut open = self.open.clone();
++        open.wait_for(|open| *open)
++            .await
++            .expect("the gate's sender outlives the node");
++    }
++}
++
++impl Storage<Sendable> for GatedStorage {
++    type Error = <MemoryStorage as Storage<Sendable>>::Error;
++
++    fn save_sedimentree_id(&self, id: SedimentreeId) -> BoxFuture<'_, Result<(), Self::Error>> {
++        Storage::<Sendable>::save_sedimentree_id(&self.inner, id)
++    }
++
++    fn delete_sedimentree_id(&self, id: SedimentreeId) -> BoxFuture<'_, Result<(), Self::Error>> {
++        Storage::<Sendable>::delete_sedimentree_id(&self.inner, id)
++    }
++
++    fn load_all_sedimentree_ids(&self) -> BoxFuture<'_, Result<Set<SedimentreeId>, Self::Error>> {
++        Storage::<Sendable>::load_all_sedimentree_ids(&self.inner)
++    }
++
++    fn contains_sedimentree_id(
++        &self,
++        id: SedimentreeId,
++    ) -> BoxFuture<'_, Result<bool, Self::Error>> {
++        Storage::<Sendable>::contains_sedimentree_id(&self.inner, id)
++    }
++
++    fn save_loose_commit(
++        &self,
++        id: SedimentreeId,
++        verified: VerifiedMeta<LooseCommit>,
++    ) -> BoxFuture<'_, Result<(), Self::Error>> {
++        Box::pin(async move {
++            self.wait().await;
++            Storage::<Sendable>::save_loose_commit(&self.inner, id, verified).await
++        })
++    }
++
++    fn list_commit_ids(
++        &self,
++        id: SedimentreeId,
++    ) -> BoxFuture<'_, Result<Set<CommitId>, Self::Error>> {
++        Storage::<Sendable>::list_commit_ids(&self.inner, id)
++    }
++
++    fn load_loose_commits(
++        &self,
++        id: SedimentreeId,
++    ) -> BoxFuture<'_, Result<Vec<VerifiedMeta<LooseCommit>>, Self::Error>> {
++        Storage::<Sendable>::load_loose_commits(&self.inner, id)
++    }
++
++    fn load_loose_commit_metas(
++        &self,
++        id: SedimentreeId,
++    ) -> BoxFuture<'_, Result<Vec<LooseCommit>, Self::Error>> {
++        Storage::<Sendable>::load_loose_commit_metas(&self.inner, id)
++    }
++
++    fn load_loose_commit(
++        &self,
++        id: SedimentreeId,
++        commit_id: CommitId,
++    ) -> BoxFuture<'_, Result<Option<VerifiedMeta<LooseCommit>>, Self::Error>> {
++        Storage::<Sendable>::load_loose_commit(&self.inner, id, commit_id)
++    }
++
++    fn delete_loose_commit(
++        &self,
++        id: SedimentreeId,
++        commit_id: CommitId,
++    ) -> BoxFuture<'_, Result<(), Self::Error>> {
++        Storage::<Sendable>::delete_loose_commit(&self.inner, id, commit_id)
++    }
++
++    fn delete_loose_commits(&self, id: SedimentreeId) -> BoxFuture<'_, Result<(), Self::Error>> {
++        Storage::<Sendable>::delete_loose_commits(&self.inner, id)
++    }
++
++    fn save_fragment(
++        &self,
++        id: SedimentreeId,
++        verified: VerifiedMeta<Fragment>,
++    ) -> BoxFuture<'_, Result<(), Self::Error>> {
++        Box::pin(async move {
++            self.wait().await;
++            Storage::<Sendable>::save_fragment(&self.inner, id, verified).await
++        })
++    }
++
++    fn load_fragment(
++        &self,
++        id: SedimentreeId,
++        fragment_head: CommitId,
++    ) -> BoxFuture<'_, Result<Option<VerifiedMeta<Fragment>>, Self::Error>> {
++        Storage::<Sendable>::load_fragment(&self.inner, id, fragment_head)
++    }
++
++    fn list_fragment_ids(
++        &self,
++        id: SedimentreeId,
++    ) -> BoxFuture<'_, Result<Set<CommitId>, Self::Error>> {
++        Storage::<Sendable>::list_fragment_ids(&self.inner, id)
++    }
++
++    fn load_fragments(
++        &self,
++        id: SedimentreeId,
++    ) -> BoxFuture<'_, Result<Vec<VerifiedMeta<Fragment>>, Self::Error>> {
++        Storage::<Sendable>::load_fragments(&self.inner, id)
++    }
++
++    fn load_fragment_metas(
++        &self,
++        id: SedimentreeId,
++    ) -> BoxFuture<'_, Result<Vec<Fragment>, Self::Error>> {
++        Storage::<Sendable>::load_fragment_metas(&self.inner, id)
++    }
++
++    fn delete_fragment(
++        &self,
++        id: SedimentreeId,
++        fragment_head: CommitId,
++    ) -> BoxFuture<'_, Result<(), Self::Error>> {
++        Storage::<Sendable>::delete_fragment(&self.inner, id, fragment_head)
++    }
++
++    fn delete_fragments(&self, id: SedimentreeId) -> BoxFuture<'_, Result<(), Self::Error>> {
++        Storage::<Sendable>::delete_fragments(&self.inner, id)
++    }
++
++    fn save_batch(
++        &self,
++        id: SedimentreeId,
++        commits: Vec<VerifiedMeta<LooseCommit>>,
++        fragments: Vec<VerifiedMeta<Fragment>>,
++    ) -> BoxFuture<'_, Result<usize, Self::Error>> {
++        Box::pin(async move {
++            self.wait().await;
++            Storage::<Sendable>::save_batch(&self.inner, id, commits, fragments).await
++        })
++    }
++}
++
++type Node = Arc<
++    Subduction<
++        'static,
++        Sendable,
++        GatedStorage,
++        MockConn,
++        SyncHandler<Sendable, GatedStorage, MockConn, OpenPolicy, CountLeadingZeroBytes, TokioSpawn>,
++        OpenPolicy,
++        MemorySigner,
++        InstantTimeout,
++        TokioSpawn,
++    >,
++>;
++
++/// A node whose saves wait for the returned gate to be opened.
++fn spawn_gated_node() -> (Node, watch::Sender<bool>) {
++    let (gate, open) = watch::channel(false);
++    let storage = GatedStorage {
++        inner: MemoryStorage::new(),
++        open,
++    };
++    let (node, _handler, listener, manager) = SubductionBuilder::new()
++        .signer(make_signer(100))
++        .storage(storage, Arc::new(OpenPolicy))
++        .spawner(TokioSpawn)
++        .timer(InstantTimeout)
++        .build::<Sendable, MockConn>();
++    tokio::spawn(listener);
++    tokio::spawn(manager);
++    (node, gate)
++}
++
++async fn attach(node: &Node, peer: PeerId) -> ChannelMockConnectionHandle<SyncMessage> {
++    let (conn, handle) = MockConn::new_with_handle(peer);
++    node.add_connection(Authenticated::new_for_test(conn, peer, Direction::Accepted))
++        .await
++        .expect("node should accept the mock connection");
++    handle
++}
++
++/// The first frame on `mock` that `pick` accepts.
++async fn next_matching<T>(
++    mock: &ChannelMockConnectionHandle<SyncMessage>,
++    mut pick: impl FnMut(SyncMessage) -> Option<T>,
++) -> T {
++    loop {
++        let msg = tokio::time::timeout(WIRE_TIMEOUT, mock.outbound_rx.recv())
++            .await
++            .expect("the frame should arrive")
++            .expect("mock outbound is open");
++        if let Some(found) = pick(msg) {
++            return found;
++        }
++    }
++}
++
++/// Send a sync request for `id` listing what A holds, and read everything up
++/// to the node's answer: the frames before it, and the diff it returns.
++async fn sync(
++    mock: &ChannelMockConnectionHandle<SyncMessage>,
++    peer: PeerId,
++    id: SedimentreeId,
++    holding: FingerprintSummary,
++) -> (Vec<SyncMessage>, SyncDiff) {
++    let req_id = RequestId {
++        requestor: peer,
++        nonce: 1,
++    };
++    mock.inbound_tx
++        .send(SyncMessage::BatchSyncRequest(BatchSyncRequest {
++            id,
++            req_id,
++            fingerprint_summary: holding,
++            subscribe: false,
++        }))
++        .await
++        .expect("mock inbound is open");
++    let mut frames = Vec::new();
++    loop {
++        let msg = tokio::time::timeout(WIRE_TIMEOUT, mock.outbound_rx.recv())
++            .await
++            .expect("the node should answer the sync request")
++            .expect("mock outbound is open");
++        if let SyncMessage::BatchSyncResponse(response) = &msg
++            && response.req_id == req_id
++        {
++            let SyncResult::Ok(diff) = &response.result else {
++                panic!("the sync request should succeed: {:?}", response.result);
++            };
++            return (frames, diff.clone());
++        }
++        frames.push(msg);
++    }
++}
++
++/// The heads a forwarded commit or fragment for `id` carries.
++fn pushed_heads(msg: SyncMessage, id: SedimentreeId) -> Option<Vec<CommitId>> {
++    if let SyncMessage::LooseCommit {
++        id: pushed,
++        sender_heads,
++        ..
++    }
++    | SyncMessage::Fragment {
++        id: pushed,
++        sender_heads,
++        ..
++    } = msg
++        && pushed == id
++    {
++        Some(sender_heads.heads)
++    } else {
++        None
++    }
++}
++
++/// Send `message` (a commit or fragment for `id`) from A to a node B is
++/// subscribed to, and check the push, the held save and the ack. `holding`
++/// is A's fingerprint summary once it has sent the item.
++async fn forwards_before_saving(
++    id: SedimentreeId,
++    message: SyncMessage,
++    holding: FingerprintSummary,
++) -> TestResult {
++    let (node, gate) = spawn_gated_node();
++    let a_peer = PeerId::new([1u8; 32]);
++    let b_peer = PeerId::new([2u8; 32]);
++    let a = attach(&node, a_peer).await;
++    let b = attach(&node, b_peer).await;
++
++    b.inbound_tx.send(subscribe_request(b_peer, id)).await?;
++    assert!(
++        wait_until(|| async { node.get_subscribers(id).await.contains(&b_peer) }).await,
++        "the node should record B's subscription"
++    );
++
++    a.inbound_tx.send(message).await?;
++
++    // B hears about it while the save is still held.
++    let pushed = next_matching(&b, |msg| pushed_heads(msg, id)).await;
++    assert!(
++        node.get_commits(id).await.is_none_or(|c| c.is_empty())
++            && node.get_fragments(id).await.is_none_or(|f| f.is_empty()),
++        "nothing is stored yet"
++    );
++
++    // A syncs while the save is held: it is not acked yet, and the node,
++    // which already has the item in hand, doesn't ask for it again.
++    let (before_save, diff) = sync(&a, a_peer, id, holding).await;
++    assert!(
++        !before_save
++            .iter()
++            .any(|msg| matches!(msg, SyncMessage::HeadsUpdate { id: acked, .. } if *acked == id)),
++        "no ack before the save: {before_save:?}"
++    );
++    assert!(
++        diff.requesting.is_empty(),
++        "the node is saving the item and must not ask for it again: {:?}",
++        diff.requesting
++    );
++
++    gate.send(true)?;
++    let acked = next_matching(&a, |msg| {
++        if let SyncMessage::HeadsUpdate {
++            id: acked,
++            heads: RemoteHeads { heads, .. },
++        } = msg
++            && acked == id
++        {
++            Some(heads)
++        } else {
++            None
++        }
++    })
++    .await;
++    assert_eq!(
++        pushed, acked,
++        "the push carried the heads the node has once it is saved"
++    );
++
++    Ok(())
++}
++
++#[tokio::test]
++async fn commit_reaches_subscribers_before_it_is_saved() -> TestResult {
++    let id = SedimentreeId::new([9u8; 32]);
++    let head = CommitId::new([0xA1; 32]);
++    let blob = Blob::new(b"typed".to_vec());
++    let commit = LooseCommit::new(id, head, BTreeSet::new(), BlobMeta::new(&blob));
++    let signed = Signed::seal::<Sendable, _>(&test_signer(), commit).await;
++    let message = SyncMessage::LooseCommit {
++        id,
++        commit: signed.into_signed(),
++        blob,
++        sender_heads: RemoteHeads::default(),
++    };
++    let seed = FingerprintSeed::new(7, 11);
++    let holding = FingerprintSummary::new(
++        seed,
++        BTreeSet::from([Fingerprint::new(&seed, &head)]),
++        BTreeSet::new(),
++    );
++
++    forwards_before_saving(id, message, holding).await?;
++    Ok(())
++}
++
++#[tokio::test]
++async fn fragment_reaches_subscribers_before_it_is_saved() -> TestResult {
++    let id = SedimentreeId::new([10u8; 32]);
++    let head = CommitId::new([1u8; 32]);
++    let blob = Blob::new(b"compacted".to_vec());
++    let fragment = Fragment::new(
++        id,
++        head,
++        BTreeSet::from([CommitId::new([2u8; 32])]),
++        &[],
++        BlobMeta::new(&blob),
++    );
++    let signed = Signed::seal::<Sendable, _>(&test_signer(), fragment).await;
++    let message = SyncMessage::Fragment {
++        id,
++        fragment: signed.into_signed(),
++        blob,
++        sender_heads: RemoteHeads::default(),
++    };
++    let seed = FingerprintSeed::new(7, 11);
++    let holding = FingerprintSummary::new(
++        seed,
++        BTreeSet::new(),
++        BTreeSet::from([Fingerprint::new(&seed, &head)]),
++    );
++
++    forwards_before_saving(id, message, holding).await?;
++    Ok(())
++}
+diff --git a/subduction_core/tests/in_flight_commit_rerequested.rs b/subduction_core/tests/in_flight_commit_rerequested.rs
+new file mode 100644
+index 0000000..bcbb5da
+--- /dev/null
++++ b/subduction_core/tests/in_flight_commit_rerequested.rs
+@@ -0,0 +1,343 @@
++//! A responder must not ask again for a commit it is already storing.
++//!
++//! When a requestor's commit arrives, the responder persists it before adding
++//! it to its in-memory tree (`insert_commit_locally`), and the sync diff is
++//! computed from that tree. A sync request that lands while the write is
++//! still running therefore sees the commit as missing and asks for it again.
++//!
++//! Clients that judge "synced" by a round that moves nothing in either
++//! direction (pushwork does) never reach that round when writes are slow —
++//! an fsync'd redb write or a remote object store PUT is enough — and report
++//! the document as unconfirmed, although nothing is wrong with it.
++//!
++//! The fix this test asks for: count commits (and fragments) whose writes are
++//! in flight as held when computing the diff.
++
++#![allow(clippy::expect_used)]
++
++use std::{collections::BTreeSet, sync::Arc, time::Duration};
++
++use future_form::Sendable;
++use futures::{FutureExt, future::BoxFuture};
++use sedimentree_core::{
++    blob::Blob,
++    collections::Set,
++    depth::CountLeadingZeroBytes,
++    fragment::Fragment,
++    id::SedimentreeId,
++    loose_commit::{LooseCommit, id::CommitId},
++};
++use subduction_core::{
++    authenticated::{Authenticated, Direction},
++    connection::test_utils::{ChannelTransport, InstantTimeout, TokioSpawn},
++    handler::sync::SyncHandler,
++    peer::id::PeerId,
++    policy::open::OpenPolicy,
++    storage::{memory::MemoryStorage, traits::Storage},
++    subduction::{Subduction, builder::SubductionBuilder},
++    timeout::call::CallTimeout,
++    transport::message::MessageTransport,
++};
++use subduction_crypto::{signer::memory::MemorySigner, verified_meta::VerifiedMeta};
++use testresult::TestResult;
++
++type Conn = MessageTransport<ChannelTransport>;
++
++/// How long each commit or fragment write takes on the slow responder.
++const WRITE_DELAY: Duration = Duration::from_millis(500);
++
++/// `MemoryStorage` whose writes of commits and fragments take [`WRITE_DELAY`].
++#[derive(Debug, Clone)]
++struct SlowWriteStorage {
++    inner: MemoryStorage,
++    delay: Duration,
++}
++
++impl SlowWriteStorage {
++    fn new(delay: Duration) -> Self {
++        Self {
++            inner: MemoryStorage::new(),
++            delay,
++        }
++    }
++}
++
++impl Storage<Sendable> for SlowWriteStorage {
++    type Error = <MemoryStorage as Storage<Sendable>>::Error;
++
++    fn save_sedimentree_id(&self, id: SedimentreeId) -> BoxFuture<'_, Result<(), Self::Error>> {
++        Storage::<Sendable>::save_sedimentree_id(&self.inner, id)
++    }
++
++    fn delete_sedimentree_id(&self, id: SedimentreeId) -> BoxFuture<'_, Result<(), Self::Error>> {
++        Storage::<Sendable>::delete_sedimentree_id(&self.inner, id)
++    }
++
++    fn load_all_sedimentree_ids(&self) -> BoxFuture<'_, Result<Set<SedimentreeId>, Self::Error>> {
++        Storage::<Sendable>::load_all_sedimentree_ids(&self.inner)
++    }
++
++    fn contains_sedimentree_id(
++        &self,
++        id: SedimentreeId,
++    ) -> BoxFuture<'_, Result<bool, Self::Error>> {
++        Storage::<Sendable>::contains_sedimentree_id(&self.inner, id)
++    }
++
++    fn save_loose_commit(
++        &self,
++        id: SedimentreeId,
++        verified: VerifiedMeta<LooseCommit>,
++    ) -> BoxFuture<'_, Result<(), Self::Error>> {
++        async move {
++            tokio::time::sleep(self.delay).await;
++            Storage::<Sendable>::save_loose_commit(&self.inner, id, verified).await
++        }
++        .boxed()
++    }
++
++    fn list_commit_ids(
++        &self,
++        id: SedimentreeId,
++    ) -> BoxFuture<'_, Result<Set<CommitId>, Self::Error>> {
++        Storage::<Sendable>::list_commit_ids(&self.inner, id)
++    }
++
++    fn load_loose_commits(
++        &self,
++        id: SedimentreeId,
++    ) -> BoxFuture<'_, Result<Vec<VerifiedMeta<LooseCommit>>, Self::Error>> {
++        Storage::<Sendable>::load_loose_commits(&self.inner, id)
++    }
++
++    fn load_loose_commit_metas(
++        &self,
++        id: SedimentreeId,
++    ) -> BoxFuture<'_, Result<Vec<LooseCommit>, Self::Error>> {
++        Storage::<Sendable>::load_loose_commit_metas(&self.inner, id)
++    }
++
++    fn load_loose_commit(
++        &self,
++        id: SedimentreeId,
++        commit_id: CommitId,
++    ) -> BoxFuture<'_, Result<Option<VerifiedMeta<LooseCommit>>, Self::Error>> {
++        Storage::<Sendable>::load_loose_commit(&self.inner, id, commit_id)
++    }
++
++    fn delete_loose_commit(
++        &self,
++        id: SedimentreeId,
++        commit_id: CommitId,
++    ) -> BoxFuture<'_, Result<(), Self::Error>> {
++        Storage::<Sendable>::delete_loose_commit(&self.inner, id, commit_id)
++    }
++
++    fn delete_loose_commits(&self, id: SedimentreeId) -> BoxFuture<'_, Result<(), Self::Error>> {
++        Storage::<Sendable>::delete_loose_commits(&self.inner, id)
++    }
++
++    fn save_fragment(
++        &self,
++        id: SedimentreeId,
++        verified: VerifiedMeta<Fragment>,
++    ) -> BoxFuture<'_, Result<(), Self::Error>> {
++        async move {
++            tokio::time::sleep(self.delay).await;
++            Storage::<Sendable>::save_fragment(&self.inner, id, verified).await
++        }
++        .boxed()
++    }
++
++    fn load_fragment(
++        &self,
++        id: SedimentreeId,
++        fragment_head: CommitId,
++    ) -> BoxFuture<'_, Result<Option<VerifiedMeta<Fragment>>, Self::Error>> {
++        Storage::<Sendable>::load_fragment(&self.inner, id, fragment_head)
++    }
++
++    fn list_fragment_ids(
++        &self,
++        id: SedimentreeId,
++    ) -> BoxFuture<'_, Result<Set<CommitId>, Self::Error>> {
++        Storage::<Sendable>::list_fragment_ids(&self.inner, id)
++    }
++
++    fn load_fragments(
++        &self,
++        id: SedimentreeId,
++    ) -> BoxFuture<'_, Result<Vec<VerifiedMeta<Fragment>>, Self::Error>> {
++        Storage::<Sendable>::load_fragments(&self.inner, id)
++    }
++
++    fn load_fragment_metas(
++        &self,
++        id: SedimentreeId,
++    ) -> BoxFuture<'_, Result<Vec<Fragment>, Self::Error>> {
++        Storage::<Sendable>::load_fragment_metas(&self.inner, id)
++    }
++
++    fn delete_fragment(
++        &self,
++        id: SedimentreeId,
++        fragment_head: CommitId,
++    ) -> BoxFuture<'_, Result<(), Self::Error>> {
++        Storage::<Sendable>::delete_fragment(&self.inner, id, fragment_head)
++    }
++
++    fn delete_fragments(&self, id: SedimentreeId) -> BoxFuture<'_, Result<(), Self::Error>> {
++        Storage::<Sendable>::delete_fragments(&self.inner, id)
++    }
++
++    fn save_batch(
++        &self,
++        id: SedimentreeId,
++        commits: Vec<VerifiedMeta<LooseCommit>>,
++        fragments: Vec<VerifiedMeta<Fragment>>,
++    ) -> BoxFuture<'_, Result<usize, Self::Error>> {
++        async move {
++            tokio::time::sleep(self.delay).await;
++            Storage::<Sendable>::save_batch(&self.inner, id, commits, fragments).await
++        }
++        .boxed()
++    }
++}
++
++type SlowSyncHandler =
++    SyncHandler<Sendable, SlowWriteStorage, Conn, OpenPolicy, CountLeadingZeroBytes, TokioSpawn>;
++
++type SlowSubduction = Arc<
++    Subduction<
++        'static,
++        Sendable,
++        SlowWriteStorage,
++        Conn,
++        SlowSyncHandler,
++        OpenPolicy,
++        MemorySigner,
++        InstantTimeout,
++        TokioSpawn,
++    >,
++>;
++
++fn make_node(signer: MemorySigner, storage: SlowWriteStorage) -> SlowSubduction {
++    let (sd, _handler, listener, manager) = SubductionBuilder::new()
++        .signer(signer)
++        .storage(storage, Arc::new(OpenPolicy))
++        .spawner(TokioSpawn)
++        .timer(InstantTimeout)
++        .build::<Sendable, Conn>();
++
++    tokio::spawn(listener);
++    tokio::spawn(manager);
++    sd
++}
++
++async fn connect_pair(
++    a: &SlowSubduction,
++    a_signer: &MemorySigner,
++    b: &SlowSubduction,
++    b_signer: &MemorySigner,
++) -> TestResult {
++    let (transport_a, transport_b) = ChannelTransport::pair();
++    let peer_a = PeerId::from(a_signer.verifying_key());
++    let peer_b = PeerId::from(b_signer.verifying_key());
++    let auth_a: Authenticated<Conn, Sendable> = Authenticated::new_for_test(
++        MessageTransport::new(transport_a),
++        peer_b,
++        Direction::Dialed,
++    );
++    let auth_b: Authenticated<Conn, Sendable> = Authenticated::new_for_test(
++        MessageTransport::new(transport_b),
++        peer_a,
++        Direction::Accepted,
++    );
++    a.add_connection(auth_a).await?;
++    b.add_connection(auth_b).await?;
++    Ok(())
++}
++
++/// Alice syncs a new commit to Bob, whose storage writes are slow, then
++/// syncs again straight away. Bob already holds the commit — it arrived and
++/// its write is under way — so the second round must not send it again.
++#[tokio::test]
++async fn commit_being_stored_is_not_requested_again() -> TestResult {
++    let alice_signer = MemorySigner::from_bytes(&[70u8; 32]);
++    let bob_signer = MemorySigner::from_bytes(&[71u8; 32]);
++
++    let alice = make_node(alice_signer.clone(), SlowWriteStorage::new(Duration::ZERO));
++    let bob = make_node(bob_signer.clone(), SlowWriteStorage::new(WRITE_DELAY));
++
++    let sed_id = SedimentreeId::new([0x7A; 32]);
++    alice
++        .add_commit(
++            sed_id,
++            CommitId::new([0xA7; 32]),
++            BTreeSet::new(),
++            Blob::new(vec![7; 64]),
++        )
++        .await?;
++
++    connect_pair(&alice, &alice_signer, &bob, &bob_signer).await?;
++    let bob_peer = PeerId::from(bob_signer.verifying_key());
++
++    let (synced, first, _) = alice
++        .sync_with_peer(&bob_peer, sed_id, false, CallTimeout::TimeoutMillis(5_000))
++        .await?;
++    assert!(synced, "the first round should reach Bob");
++    assert_eq!(first.commits_sent, 1, "Bob asks for the commit once");
++
++    // Give the commit time to arrive at Bob, but not for his write to finish.
++    tokio::time::sleep(WRITE_DELAY / 5).await;
++
++    let (synced, second, _) = alice
++        .sync_with_peer(&bob_peer, sed_id, false, CallTimeout::TimeoutMillis(5_000))
++        .await?;
++    assert!(synced, "the second round should reach Bob");
++    assert_eq!(
++        second.commits_sent, 0,
++        "Bob is already storing the commit and must not ask for it again"
++    );
++
++    Ok(())
++}
++
++/// Control: once Bob's write has finished, a further round moves nothing.
++/// This passes today; it pins that the failure above is about the write
++/// being in flight, not about the commit going missing.
++#[tokio::test]
++async fn commit_is_not_requested_after_its_write_finishes() -> TestResult {
++    let alice_signer = MemorySigner::from_bytes(&[72u8; 32]);
++    let bob_signer = MemorySigner::from_bytes(&[73u8; 32]);
++
++    let alice = make_node(alice_signer.clone(), SlowWriteStorage::new(Duration::ZERO));
++    let bob = make_node(bob_signer.clone(), SlowWriteStorage::new(WRITE_DELAY));
++
++    let sed_id = SedimentreeId::new([0x7B; 32]);
++    alice
++        .add_commit(
++            sed_id,
++            CommitId::new([0xB7; 32]),
++            BTreeSet::new(),
++            Blob::new(vec![8; 64]),
++        )
++        .await?;
++
++    connect_pair(&alice, &alice_signer, &bob, &bob_signer).await?;
++    let bob_peer = PeerId::from(bob_signer.verifying_key());
++
++    let (_, first, _) = alice
++        .sync_with_peer(&bob_peer, sed_id, false, CallTimeout::TimeoutMillis(5_000))
++        .await?;
++    assert_eq!(first.commits_sent, 1);
++
++    tokio::time::sleep(WRITE_DELAY * 2).await;
++
++    let (_, second, _) = alice
++        .sync_with_peer(&bob_peer, sed_id, false, CallTimeout::TimeoutMillis(5_000))
++        .await?;
++    assert_eq!(second.commits_sent, 0, "nothing left to send");
++
++    Ok(())
++}
