@@ -1,0 +1,53 @@
+[package]
+name = "subduction_slatedb_storage"
+version = "0.1.0"
+description = "SlateDB (LSM tree on object storage) backend for Sedimentree"
+categories = ["database"]
+keywords = ["sedimentree", "subduction", "storage", "slatedb", "s3"]
+readme = "./README.md"
+edition = "2024"
+rust-version = "1.91"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/chee/galaxy.observer"
+authors = ["chee <yay@chee.party>"]
+
+[dependencies]
+future_form = "0.3.0"
+futures = "0.3.31"
+# the same object_store slatedb is built on, so stores pass straight through
+object_store = { version = "0.14.2", default-features = false, features = ["fs"] }
+sedimentree_core = "0.14.2"
+slatedb = { version = "0.17", default-features = false, features = ["foyer"] }
+subduction_core = "0.18.2"
+subduction_crypto = "0.9.2"
+# 0.8 speaks the keyhive the current JS clients do; 0.9 does not yet
+subduction_keyhive = { version = ">=0.8.2, <0.10", optional = true }
+thiserror = "2.0"
+tracing = "0.1.41"
+url = "2.5"
+
+[features]
+default = ["aws"]
+# Amazon S3 and S3-compatible stores (R2, Tigris, MinIO, Railway buckets).
+aws = ["object_store/aws", "slatedb/aws"]
+# `SlateDbKeyhiveStorage`: keyhive state in the same database.
+keyhive = ["dep:subduction_keyhive"]
+
+[dev-dependencies]
+subduction_core = { version = "0.18.2", features = ["std", "test_utils"] }
+tempfile = "3.27"
+testresult = "0.4.1"
+tokio = { version = "1.47", features = ["macros", "rt", "rt-multi-thread", "time"] }
+
+[[test]]
+name = "keyhive"
+required-features = ["keyhive"]
+
+[lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
+unreachable_pub = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
