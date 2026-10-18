@@ -1,5 +1,5 @@
 diff --git a/Cargo.lock b/Cargo.lock
-index 04c1963..675f329 100644
+index 9db80ca..ef7b351 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
 @@ -184,6 +184,45 @@ version = "0.7.8"
@@ -289,7 +289,7 @@ index 04c1963..675f329 100644
  [[package]]
  name = "nom"
  version = "7.1.3"
-@@ -3611,6 +3752,7 @@ dependencies = [
+@@ -3605,6 +3746,7 @@ dependencies = [
   "rustc-hash 2.1.3",
   "rustls",
   "rustls-pki-types",
@@ -297,7 +297,7 @@ index 04c1963..675f329 100644
   "slab",
   "sorted-index-buffer",
   "thiserror 2.0.20",
-@@ -3702,7 +3844,7 @@ version = "0.7.6"
+@@ -3696,7 +3838,7 @@ version = "0.7.6"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
  dependencies = [
@@ -306,7 +306,7 @@ index 04c1963..675f329 100644
   "proc-macro2",
   "quote",
   "syn 2.0.119",
-@@ -3807,6 +3949,57 @@ dependencies = [
+@@ -3801,6 +3943,57 @@ dependencies = [
   "memchr",
  ]
  
@@ -364,7 +364,7 @@ index 04c1963..675f329 100644
  [[package]]
  name = "once_cell"
  version = "1.21.4"
-@@ -3938,6 +4131,26 @@ version = "1.0.15"
+@@ -3932,6 +4125,26 @@ version = "1.0.15"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
  
@@ -391,7 +391,7 @@ index 04c1963..675f329 100644
  [[package]]
  name = "pem-rfc7468"
  version = "1.0.0"
-@@ -4027,7 +4240,7 @@ version = "1.10.0"
+@@ -4021,7 +4234,7 @@ version = "1.10.0"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "7da1d65da6dd5d1e44199ac0f58712d241c0f439f80adea8924d832384087f85"
  dependencies = [
@@ -400,7 +400,7 @@ index 04c1963..675f329 100644
   "indexmap",
   "quick-xml 0.41.0",
   "serde",
-@@ -4100,7 +4313,7 @@ version = "0.19.3"
+@@ -4094,7 +4307,7 @@ version = "0.19.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "ca97242f016e090a25330613bc2382aab65eb22f9149dbe84d8f8e711d49a530"
  dependencies = [
@@ -409,7 +409,7 @@ index 04c1963..675f329 100644
   "bytes",
   "derive_more 2.1.1",
   "hyper-util",
-@@ -4218,16 +4431,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+@@ -4212,16 +4425,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "b00f26d3400549137f92511a46ac1cd8ce37cb5598a96d382381458b992a5d24"
  dependencies = [
   "toml_datetime 0.6.3",
@@ -427,7 +427,7 @@ index 04c1963..675f329 100644
  ]
  
  [[package]]
-@@ -4355,6 +4559,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+@@ -4349,6 +4553,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "e660451e55124f798a69a5af3f49ccfbefbd41910eefd25caf2393e1f3473ec1"
  dependencies = [
   "memchr",
@@ -435,7 +435,7 @@ index 04c1963..675f329 100644
  ]
  
  [[package]]
-@@ -4577,6 +4782,20 @@ dependencies = [
+@@ -4571,6 +4776,20 @@ dependencies = [
   "crossbeam-utils",
  ]
  
@@ -456,7 +456,7 @@ index 04c1963..675f329 100644
  [[package]]
  name = "redb"
  version = "4.2.0"
-@@ -4624,13 +4843,30 @@ version = "0.8.11"
+@@ -4618,13 +4837,30 @@ version = "0.8.11"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
  
@@ -488,7 +488,7 @@ index 04c1963..675f329 100644
   "bytes",
   "futures-core",
   "http",
-@@ -4666,10 +4902,11 @@ version = "0.13.4"
+@@ -4660,10 +4896,11 @@ version = "0.13.4"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
  dependencies = [
@@ -501,7 +501,7 @@ index 04c1963..675f329 100644
   "http",
   "http-body",
   "http-body-util",
-@@ -4686,6 +4923,8 @@ dependencies = [
+@@ -4680,6 +4917,8 @@ dependencies = [
   "rustls",
   "rustls-pki-types",
   "rustls-platform-verifier",
@@ -510,7 +510,7 @@ index 04c1963..675f329 100644
   "sync_wrapper",
   "tokio",
   "tokio-native-tls",
-@@ -4766,6 +5005,15 @@ dependencies = [
+@@ -4760,6 +4999,15 @@ dependencies = [
   "semver",
  ]
  
@@ -526,7 +526,7 @@ index 04c1963..675f329 100644
  [[package]]
  name = "rustix"
  version = "1.1.4"
-@@ -4795,6 +5043,40 @@ dependencies = [
+@@ -4789,6 +5037,40 @@ dependencies = [
   "zeroize",
  ]
  
@@ -567,7 +567,7 @@ index 04c1963..675f329 100644
  [[package]]
  name = "rustls-native-certs"
  version = "0.8.4"
-@@ -5075,6 +5357,15 @@ dependencies = [
+@@ -5069,6 +5351,15 @@ dependencies = [
   "serde_core",
  ]
  
@@ -583,7 +583,7 @@ index 04c1963..675f329 100644
  [[package]]
  name = "serde_urlencoded"
  version = "0.7.1"
-@@ -5108,6 +5399,17 @@ dependencies = [
+@@ -5102,6 +5393,17 @@ dependencies = [
   "digest 0.10.7",
  ]
  
@@ -601,7 +601,7 @@ index 04c1963..675f329 100644
  [[package]]
  name = "sha1_smol"
  version = "1.0.1"
-@@ -5376,6 +5678,7 @@ dependencies = [
+@@ -5370,6 +5672,7 @@ dependencies = [
   "hyper",
   "hyper-util",
   "iroh",
@@ -609,7 +609,7 @@ index 04c1963..675f329 100644
   "keyhive_core",
   "keyhive_crypto",
   "metrics",
-@@ -5388,12 +5691,14 @@ dependencies = [
+@@ -5382,12 +5685,14 @@ dependencies = [
   "reqwest 0.13.4",
   "sedimentree_core",
   "sedimentree_fs_storage",
@@ -624,7 +624,7 @@ index 04c1963..675f329 100644
   "subduction_redb_storage",
   "subduction_websocket",
   "tempfile",
-@@ -5518,7 +5823,7 @@ version = "0.1.0"
+@@ -5512,7 +5817,7 @@ version = "0.2.0"
  dependencies = [
   "async-tungstenite",
   "axum",
@@ -633,7 +633,7 @@ index 04c1963..675f329 100644
   "bolero",
   "future_form",
   "futures",
-@@ -5527,7 +5832,7 @@ dependencies = [
+@@ -5521,7 +5826,7 @@ dependencies = [
   "http-body-util",
   "hyper",
   "hyper-util",
@@ -642,7 +642,7 @@ index 04c1963..675f329 100644
   "subduction_core",
   "subduction_crypto",
   "subduction_websocket",
-@@ -5567,7 +5872,7 @@ version = "0.9.0"
+@@ -5561,7 +5866,7 @@ version = "0.11.0"
  dependencies = [
   "async-channel",
   "async-lock",
@@ -651,13 +651,13 @@ index 04c1963..675f329 100644
   "bincode",
   "blake3",
   "bolero",
-@@ -5595,6 +5900,26 @@ dependencies = [
+@@ -5589,6 +5894,26 @@ dependencies = [
   "tracing",
  ]
  
 +[[package]]
 +name = "subduction_object_storage"
-+version = "0.1.2"
++version = "0.2.0"
 +dependencies = [
 + "future_form",
 + "futures",
@@ -677,8 +677,8 @@ index 04c1963..675f329 100644
 +
  [[package]]
  name = "subduction_redb_storage"
- version = "0.2.2"
-@@ -5994,6 +6319,34 @@ dependencies = [
+ version = "0.3.0"
+@@ -5988,6 +6313,34 @@ dependencies = [
   "tokio",
  ]
  
@@ -713,7 +713,7 @@ index 04c1963..675f329 100644
  [[package]]
  name = "tokio-stream"
  version = "0.1.19"
-@@ -6038,7 +6391,7 @@ version = "0.13.3"
+@@ -6032,7 +6385,7 @@ version = "0.13.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "d52efb639344a7c6adb8e62c6f3d2c19c001ff1b79a5041ba1c6ed42e19c6aa5"
  dependencies = [
@@ -722,7 +722,7 @@ index 04c1963..675f329 100644
   "bytes",
   "futures-core",
   "futures-sink",
-@@ -6055,6 +6408,21 @@ dependencies = [
+@@ -6049,6 +6402,21 @@ dependencies = [
   "tokio-util",
  ]
  
@@ -744,7 +744,7 @@ index 04c1963..675f329 100644
  [[package]]
  name = "toml_datetime"
  version = "0.6.3"
-@@ -6081,18 +6449,6 @@ dependencies = [
+@@ -6075,18 +6443,6 @@ dependencies = [
   "winnow 0.5.40",
  ]
  
@@ -763,7 +763,7 @@ index 04c1963..675f329 100644
  [[package]]
  name = "toml_parser"
  version = "1.1.3+spec-1.1.0"
-@@ -6102,6 +6458,12 @@ dependencies = [
+@@ -6096,6 +6452,12 @@ dependencies = [
   "winnow 1.0.4",
  ]
  
@@ -776,7 +776,7 @@ index 04c1963..675f329 100644
  [[package]]
  name = "tonic"
  version = "0.14.6"
-@@ -6110,7 +6472,7 @@ checksum = "ac2a5518c70fa84342385732db33fb3f44bc4cc748936eb5833d2df34d6445ef"
+@@ -6104,7 +6466,7 @@ checksum = "ac2a5518c70fa84342385732db33fb3f44bc4cc748936eb5833d2df34d6445ef"
  dependencies = [
   "async-trait",
   "axum",
@@ -785,7 +785,7 @@ index 04c1963..675f329 100644
   "bytes",
   "h2",
   "http",
-@@ -6317,7 +6679,7 @@ dependencies = [
+@@ -6311,7 +6673,7 @@ dependencies = [
   "rand 0.9.5",
   "rustls",
   "rustls-pki-types",
@@ -794,7 +794,7 @@ index 04c1963..675f329 100644
   "thiserror 2.0.20",
   "utf-8",
  ]
-@@ -6945,9 +7307,6 @@ name = "winnow"
+@@ -6939,9 +7301,6 @@ name = "winnow"
  version = "1.0.4"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
@@ -804,7 +804,7 @@ index 04c1963..675f329 100644
  
  [[package]]
  name = "wit-bindgen"
-@@ -7007,6 +7366,24 @@ dependencies = [
+@@ -7001,6 +7360,24 @@ dependencies = [
   "zeroize",
  ]
  
@@ -829,7 +829,7 @@ index 04c1963..675f329 100644
  [[package]]
  name = "xml-rs"
  version = "0.8.29"
-@@ -7022,6 +7399,16 @@ dependencies = [
+@@ -7016,6 +7393,16 @@ dependencies = [
   "xml-rs",
  ]
  
@@ -847,7 +847,7 @@ index 04c1963..675f329 100644
  name = "yoke"
  version = "0.8.3"
 diff --git a/Cargo.toml b/Cargo.toml
-index 800b2ff..86a66e8 100644
+index ce2b6d6..1174f7e 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -14,6 +14,7 @@ members = [
@@ -858,14 +858,14 @@ index 800b2ff..86a66e8 100644
    "subduction_redb_storage",
    "subduction_wasm",
    "subduction_wasm_bootstrap",
-@@ -43,6 +44,7 @@ subduction_http_longpoll = { version = "0.11.2", path = "subduction_http_longpol
- subduction_hyper = { version = "0.1.0", path = "subduction_hyper", default-features = false }
- subduction_iroh = { version = "0.10.2", path = "subduction_iroh" }
- subduction_keyhive = { version = "0.9.0", path = "subduction_keyhive" }
-+subduction_object_storage = { version = "0.1.2", path = "subduction_object_storage", default-features = false }
- subduction_redb_storage = { version = "0.2.2", path = "subduction_redb_storage" }
- subduction_wasm = { version = "0.23.0", path = "subduction_wasm" }
- subduction_wasm_bootstrap = { version = "0.3.2", path = "subduction_wasm_bootstrap" }
+@@ -43,6 +44,7 @@ subduction_http_longpoll = { version = "0.12.0", path = "subduction_http_longpol
+ subduction_hyper = { version = "0.2.0", path = "subduction_hyper", default-features = false }
+ subduction_iroh = { version = "0.11.0", path = "subduction_iroh" }
+ subduction_keyhive = { version = "0.11.0", path = "subduction_keyhive" }
++subduction_object_storage = { version = "0.2.0", path = "subduction_object_storage", default-features = false }
+ subduction_redb_storage = { version = "0.3.0", path = "subduction_redb_storage" }
+ subduction_wasm = { version = "0.25.0", path = "subduction_wasm" }
+ subduction_wasm_bootstrap = { version = "0.4.0", path = "subduction_wasm_bootstrap" }
 @@ -137,6 +139,14 @@ wasm-tracing = { version = "3.0.0-alpha.0", git = "https://github.com/dsgallups/
  wasm_refgen = "0.2.0" # no_std by default
  windows-sys = "0.61.2"
@@ -882,7 +882,7 @@ index 800b2ff..86a66e8 100644
  future_incompatible = { level = "warn", priority = -1 }
  let_underscore = { level = "warn", priority = -1 }
 diff --git a/subduction_cli/Cargo.toml b/subduction_cli/Cargo.toml
-index 8d36eee..ab41cc1 100644
+index 9b14a7c..27bd300 100644
 --- a/subduction_cli/Cargo.toml
 +++ b/subduction_cli/Cargo.toml
 @@ -34,6 +34,7 @@ http-body-util = { workspace = true }
@@ -1212,18 +1212,21 @@ index a17751f..0be90da 100644
              return async { ids }.boxed();
          };
 diff --git a/subduction_cli/src/server.rs b/subduction_cli/src/server.rs
-index 77ada8f..f326cec 100644
+index 77ada8f..8856e1f 100644
 --- a/subduction_cli/src/server.rs
 +++ b/subduction_cli/src/server.rs
-@@ -14,6 +14,7 @@ use eyre::Result;
+@@ -13,7 +13,9 @@ use std::{
+ use eyre::Result;
  use future_form::Sendable;
  use iroh::{EndpointAddr, endpoint::presets};
- use sedimentree_core::depth::CountLeadingZeroBytes;
+-use sedimentree_core::depth::CountLeadingZeroBytes;
++use futures::StreamExt;
++use sedimentree_core::{depth::CountLeadingZeroBytes, id::SedimentreeId};
 +use subduction_core::policy::storage::StoragePolicy;
  use subduction_core::{
      authenticated::Authenticated,
      handshake::{
-@@ -33,6 +34,7 @@ use subduction_core::{
+@@ -33,6 +35,7 @@ use subduction_core::{
  };
  use subduction_crypto::{nonce::Nonce, signer::memory::MemorySigner};
  use subduction_http_longpoll::server::LongPollHandler;
@@ -1231,7 +1234,7 @@ index 77ada8f..f326cec 100644
  use subduction_redb_storage::RedbStorage;
  use subduction_websocket::{
      DEFAULT_MAX_MESSAGE_SIZE,
-@@ -56,12 +58,13 @@ use subduction_keyhive::{connection::KeyhiveConnection, runtime::init_sendable_k
+@@ -56,12 +59,13 @@ use subduction_keyhive::{connection::KeyhiveConnection, runtime::init_sendable_k
  use crate::{
      handler::{
          CliConn, CliEphemeralHandler, CliHandler, CliHandlerOpenPolicy, CliKeyhiveHandler,
@@ -1246,7 +1249,7 @@ index 77ada8f..f326cec 100644
      transport::UnifiedTransport,
  };
  
-@@ -74,7 +77,7 @@ type CliSubduction<H> = Arc<
+@@ -74,7 +78,7 @@ type CliSubduction<H> = Arc<
      Subduction<
          'static,
          future_form::Sendable,
@@ -1255,7 +1258,7 @@ index 77ada8f..f326cec 100644
          CliConn,
          H,
          CliKeyhivePolicyHandle,
-@@ -97,6 +100,21 @@ pub(crate) struct ServerArgs {
+@@ -97,6 +101,21 @@ pub(crate) struct ServerArgs {
      #[arg(short, long)]
      pub(crate) data_dir: Option<PathBuf>,
  
@@ -1277,23 +1280,24 @@ index 77ada8f..f326cec 100644
      #[command(flatten)]
      pub(crate) key: key::KeyArgs,
  
-@@ -195,6 +213,15 @@ pub(crate) struct ServerArgs {
+@@ -195,6 +214,16 @@ pub(crate) struct ServerArgs {
      #[arg(long = "ws-peer", value_name = "URL")]
      pub(crate) ws_peers: Vec<String>,
  
 +    /// WebSocket peer URLs to pull from but never push to. Like any peer we
-+    /// dial, a client's subscription to a document is passed on to it. On
-+    /// every (re)connect the server also syncs each document it holds with
-+    /// the peer and subscribes to it. The peer is refused every fetch and
-+    /// gets no pushes or presence; keyhive ops flow both ways. It is greeted
-+    /// with its URL's host as the service name.
++    /// dial, a client's subscription to a document is passed on to it, and a
++    /// client's request for a document is answered only after syncing it with
++    /// the peer. On every (re)connect the server subscribes there again to the
++    /// documents clients are subscribed to here. The peer is refused every
++    /// fetch and gets no pushes or presence; keyhive ops flow both ways. It is
++    /// greeted with its URL's host as the service name.
 +    #[arg(long = "ws-pull-peer", value_name = "URL")]
 +    pub(crate) ws_pull_peers: Vec<String>,
 +
      /// Enable the Iroh (QUIC) transport for NAT-traversing P2P connections
      #[arg(long, default_value_t = false)]
      pub(crate) iroh: bool,
-@@ -217,6 +244,14 @@ pub(crate) struct ServerArgs {
+@@ -217,6 +246,14 @@ pub(crate) struct ServerArgs {
      #[arg(long = "iroh-relay-url", value_name = "URL")]
      pub(crate) iroh_relay_url: Option<String>,
  
@@ -1308,7 +1312,7 @@ index 77ada8f..f326cec 100644
      /// Write a JSON file on startup with the assigned port, peer ID, and iroh node ID.
      /// Useful for integration tests that need to discover the server's address.
      #[arg(long = "ready-file", value_name = "PATH")]
-@@ -276,6 +311,13 @@ impl ServerArgs {
+@@ -276,6 +313,13 @@ impl ServerArgs {
      }
  }
  
@@ -1322,7 +1326,7 @@ index 77ada8f..f326cec 100644
  /// Default interval for refreshing storage metrics (1 minute).
  const DEFAULT_METRICS_REFRESH_SECS: u64 = 60;
  
-@@ -299,19 +341,27 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
+@@ -299,19 +343,27 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
  
      // Initialize the full keyhive stack: storage, identity, protocol, ingest.
      let keyhive_signer = key::keyhive_signer_from_seed(&common.seed);
@@ -1331,9 +1335,9 @@ index 77ada8f..f326cec 100644
 -    let fs_keyhive_storage = FsKeyhiveStorage::new(keyhive_root)?;
 +    let keyhive_storage = if let Some(object_storage) = &common.object_storage {
 +        tracing::info!("Keyhive storage in the object store");
-+        // keyhive_core 0.6 can't read the 0.5 events kept in `keyhive/`, so it
-+        // starts its own directory
-+        CliKeyhiveStorage::Object(object_storage.keyhive_in("keyhive-0.6"))
++        // Each keyhive_core version that can't read the last one's events
++        // (0.5 in `keyhive/`, 0.6 in `keyhive-0.6/`) starts its own directory
++        CliKeyhiveStorage::Object(object_storage.keyhive_in("keyhive-0.7"))
 +    } else {
 +        let keyhive_root = common.data_dir.join(KEYHIVE_DIR);
 +        tracing::info!(root = ?keyhive_root, "Initializing keyhive storage");
@@ -1354,7 +1358,7 @@ index 77ada8f..f326cec 100644
          kh_peer_id,
          contact_card,
      ));
-@@ -351,9 +401,10 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
+@@ -351,9 +403,10 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
          common,
          storage_policy,
          Some(keyhive_protocol),
@@ -1367,7 +1371,7 @@ index 77ada8f..f326cec 100644
          },
      )
      .await
-@@ -374,7 +425,10 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
+@@ -374,7 +427,10 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
          common,
          storage_policy,
          None,
@@ -1379,7 +1383,7 @@ index 77ada8f..f326cec 100644
      )
      .await
  }
-@@ -385,7 +439,9 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
+@@ -385,7 +441,9 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
  struct SetupCommon {
      addr: SocketAddr,
      data_dir: PathBuf,
@@ -1390,7 +1394,7 @@ index 77ada8f..f326cec 100644
      seed: [u8; 32],
      signer: MemorySigner,
      peer_id: PeerId,
-@@ -414,18 +470,13 @@ impl SetupCommon {
+@@ -414,18 +472,13 @@ impl SetupCommon {
              );
          }
  
@@ -1415,7 +1419,7 @@ index 77ada8f..f326cec 100644
  
          // Background metrics refresh
          if args.metrics {
-@@ -510,6 +561,7 @@ impl SetupCommon {
+@@ -510,6 +563,7 @@ impl SetupCommon {
              addr,
              data_dir,
              storage,
@@ -1423,7 +1427,7 @@ index 77ada8f..f326cec 100644
              seed,
              signer,
              peer_id,
-@@ -521,6 +573,36 @@ impl SetupCommon {
+@@ -521,6 +575,36 @@ impl SetupCommon {
      }
  }
  
@@ -1460,7 +1464,7 @@ index 77ada8f..f326cec 100644
  /// Build the Subduction instance and run the transport accept loops.
  ///
  /// Generic over the composed handler `H`. `keyhive_protocol` is `None` in open
-@@ -533,15 +615,17 @@ async fn serve<H, F>(
+@@ -533,15 +617,17 @@ async fn serve<H, F>(
      common: SetupCommon,
      storage_policy: Arc<CliKeyhivePolicyHandle>,
      keyhive_protocol: Option<CliKeyhiveProtocol>,
@@ -1479,7 +1483,7 @@ index 77ada8f..f326cec 100644
          signer,
          peer_id,
          handshake_max_drift,
-@@ -553,7 +637,7 @@ where
+@@ -553,7 +639,7 @@ where
  
      let builder = SubductionBuilder::new()
          .signer(signer.clone())
@@ -1488,7 +1492,7 @@ index 77ada8f..f326cec 100644
          .spawner(TokioSpawn)
          .timer(FuturesTimerTimeout)
          // Seeded so sequences resume above previous values across restarts;
-@@ -578,6 +662,7 @@ where
+@@ -578,6 +664,7 @@ where
      };
  
      let mut requestor_tally = None;
@@ -1496,7 +1500,7 @@ index 77ada8f..f326cec 100644
      let (subduction, listener_fut, manager_fut, ephemeral): (CliSubduction<H>, _, _, _) = builder
          .build_composed(|sync_handler| {
              requestor_tally = Some(sync_handler.requestor_tally());
-@@ -604,13 +689,20 @@ where
+@@ -604,13 +691,20 @@ where
                  }
              });
  
@@ -1518,7 +1522,7 @@ index 77ada8f..f326cec 100644
      // Periodically publish the in-memory cache occupancy and the top-requestor
      // window. Lives here (not in the storage refresh task) because both come
      // from `Subduction`/handler state, not the storage backend. The resident
-@@ -768,6 +860,12 @@ where
+@@ -768,6 +862,12 @@ where
      let ws_keepalive = KeepAlive::balanced();
  
      let accept_keyhive = keyhive_protocol.clone();
@@ -1531,7 +1535,7 @@ index 77ada8f..f326cec 100644
      let accept_task = tokio::spawn(async move {
          accept_loop(
              tcp_listener,
-@@ -775,6 +873,9 @@ where
+@@ -775,6 +875,9 @@ where
              accept_ephemeral,
              accept_handler,
              accept_keyhive,
@@ -1541,7 +1545,7 @@ index 77ada8f..f326cec 100644
              accept_cancel,
              handshake_max_drift,
              max_message_size,
-@@ -802,7 +903,10 @@ where
+@@ -802,7 +905,10 @@ where
              iroh::endpoint::RelayMode::Default
          };
  
@@ -1552,7 +1556,7 @@ index 77ada8f..f326cec 100644
              .alpns(vec![subduction_iroh::ALPN.to_vec()])
              .relay_mode(relay_mode)
              .bind()
-@@ -958,6 +1062,7 @@ where
+@@ -958,6 +1064,7 @@ where
                  peer_max_message_size,
                  peer_max_frame_size,
                  peer_keepalive,
@@ -1560,7 +1564,7 @@ index 77ada8f..f326cec 100644
              )
              .await
              {
-@@ -971,6 +1076,44 @@ where
+@@ -971,6 +1078,44 @@ where
          });
      }
  
@@ -1605,7 +1609,7 @@ index 77ada8f..f326cec 100644
      // Write ready file if requested (for integration tests)
      if let Some(ref ready_path) = args.ready_file {
          let iroh_line = iroh_node_id
-@@ -1045,6 +1188,91 @@ fn publish_disk_usage(data_dir: &std::path::Path) {
+@@ -1045,6 +1190,91 @@ fn publish_disk_usage(data_dir: &std::path::Path) {
      subduction_core::metrics::set_redb_file_bytes(redb_bytes);
  }
  
@@ -1697,7 +1701,7 @@ index 77ada8f..f326cec 100644
  /// Accept loop: routes incoming TCP connections to WebSocket or HTTP long-poll.
  #[allow(clippy::too_many_arguments)]
  async fn accept_loop<H: CliWireHandler>(
-@@ -1053,6 +1281,9 @@ async fn accept_loop<H: CliWireHandler>(
+@@ -1053,6 +1283,9 @@ async fn accept_loop<H: CliWireHandler>(
      ephemeral: CliEphemeralHandler,
      lp_handler: LongPollHandler<MemorySigner, FuturesTimerTimeout>,
      keyhive_proto: Option<CliKeyhiveProtocol>,
@@ -1707,7 +1711,7 @@ index 77ada8f..f326cec 100644
      cancel: CancellationToken,
      handshake_max_drift: Duration,
      max_message_size: usize,
-@@ -1080,20 +1311,37 @@ async fn accept_loop<H: CliWireHandler>(
+@@ -1080,20 +1313,37 @@ async fn accept_loop<H: CliWireHandler>(
                          let task_ephemeral = ephemeral.clone();
                          let task_handler = lp_handler.clone();
                          let task_keyhive = keyhive_proto.clone();
@@ -1753,7 +1757,7 @@ index 77ada8f..f326cec 100644
                              }
  
                              let is_http = peek_buf.starts_with(b"POST")
-@@ -1131,7 +1379,7 @@ async fn accept_loop<H: CliWireHandler>(
+@@ -1131,7 +1381,7 @@ async fn accept_loop<H: CliWireHandler>(
                              } else {
                                  tracing::warn!(
                                      addr = %addr,
@@ -1762,7 +1766,7 @@ index 77ada8f..f326cec 100644
                                      "unknown protocol"
                                  );
                              }
-@@ -1399,6 +1647,160 @@ async fn handle_http_longpoll<H: CliWireHandler>(
+@@ -1399,6 +1649,160 @@ async fn handle_http_longpoll<H: CliWireHandler>(
      }
  }
  
@@ -1923,7 +1927,7 @@ index 77ada8f..f326cec 100644
  /// Wrap a connection in a keyhive adapter and register the peer.
  ///
  /// No-op when keyhive is disabled (`protocol` is `None`).
-@@ -1427,6 +1829,7 @@ async fn try_connect_ws<H: CliWireHandler>(
+@@ -1427,6 +1831,7 @@ async fn try_connect_ws<H: CliWireHandler>(
      max_message_size: usize,
      max_frame_size: usize,
      keepalive: KeepAlive,
@@ -1931,7 +1935,7 @@ index 77ada8f..f326cec 100644
  ) -> Result<PeerId, eyre::Error> {
      let uri_str = uri.to_string();
      tracing::info!(uri = %uri_str, service_name = %service_name, "Connecting to peer via discovery");
-@@ -1514,15 +1917,160 @@ async fn try_connect_ws<H: CliWireHandler>(
+@@ -1514,15 +1919,203 @@ async fn try_connect_ws<H: CliWireHandler>(
      let remote_id = authenticated.peer_id();
      tracing::info!(peer = %remote_id, "Handshake complete: connected to peer");
  
@@ -2011,11 +2015,17 @@ index 77ada8f..f326cec 100644
 +    })
 +}
 +
++/// How many documents a pull peer (re)connection syncs at once.
++const PULL_RESUBSCRIBE_CONCURRENCY: usize = 8;
++
 +/// Keep a connection to a `--ws-pull-peer` for as long as the server runs.
-+/// Each time it connects, sync every document we hold with it (subscribing,
-+/// so later changes are pushed to us), since subscriptions passed on for
-+/// clients do not survive a reconnect; when it drops, connect again, backing
-+/// off up to five minutes between failures.
++/// Each time it connects, sync the documents clients here are subscribed to
++/// with it (subscribing, so later changes are pushed to us), since
++/// subscriptions passed on for clients do not survive a reconnect. Other
++/// documents are pulled when a client asks for them
++/// ([`pull_before_answering`]), so connecting doesn't load every document we
++/// hold. When the connection drops, connect again, backing off up to five
++/// minutes between failures.
 +#[allow(clippy::too_many_arguments)]
 +async fn pull_from_ws_peer<H: CliWireHandler>(
 +    uri: Uri,
@@ -2050,20 +2060,41 @@ index 77ada8f..f326cec 100644
 +            Ok(remote_id) => {
 +                backoff = Duration::from_secs(1);
 +                let started = Instant::now();
-+                let (_, stats, conn_errs, doc_errs) = subduction
-+                    .full_sync_with_peer(&remote_id, true, CallTimeout::Default)
++                let wanted = subscribed_documents(&subduction, &policy).await;
++                let documents = wanted.len();
++                let (received, failed) = futures::stream::iter(wanted)
++                    .map(|id| {
++                        let subduction = &subduction;
++                        let remote_id = &remote_id;
++                        async move {
++                            let synced = subduction
++                                .sync_with_peer(remote_id, id, true, CallTimeout::Default)
++                                .await;
++                            if let Err(e) = &synced {
++                                tracing::warn!(peer = %remote_id, tree = ?id, error = %e, "Resubscribing at pull peer failed");
++                            }
++                            synced
++                        }
++                    })
++                    .buffer_unordered(PULL_RESUBSCRIBE_CONCURRENCY)
++                    .fold((0, 0), |(received, failed), synced| async move {
++                        match synced {
++                            Ok((_, stats, _)) => (
++                                received + stats.commits_received + stats.fragments_received,
++                                failed,
++                            ),
++                            Err(_) => (received, failed + 1),
++                        }
++                    })
 +                    .await;
 +                tracing::info!(
 +                    uri = %uri,
 +                    peer = %remote_id,
-+                    commits_received = stats.commits_received,
-+                    fragments_received = stats.fragments_received,
-+                    commits_sent = stats.commits_sent,
-+                    fragments_sent = stats.fragments_sent,
-+                    connection_errors = conn_errs.len(),
-+                    document_errors = doc_errs.len(),
++                    documents,
++                    received,
++                    failed,
 +                    elapsed_ms = started.elapsed().as_millis(),
-+                    "Pulled from peer"
++                    "Subscribed at pull peer"
 +                );
 +                // Stay idle while the connection lasts.
 +                let mut tick = time::interval(Duration::from_secs(10));
@@ -2088,6 +2119,22 @@ index 77ada8f..f326cec 100644
 +            }
 +        }
 +    }
++}
++
++/// The stored documents a client here is subscribed to, which a pull peer must
++/// keep pushing to us. A pull peer's own subscriptions don't count.
++async fn subscribed_documents<H: CliWireHandler>(
++    subduction: &CliSubduction<H>,
++    policy: &CliKeyhivePolicyHandle,
++) -> Vec<SedimentreeId> {
++    let mut wanted = Vec::new();
++    for id in subduction.sedimentree_ids().await {
++        let subscribers = subduction.get_subscribers(id).await;
++        if subscribers.iter().any(|peer| !policy.is_pull_only(peer)) {
++            wanted.push(id);
++        }
++    }
++    wanted
 +}
 +
  /// Connect to a peer via Iroh (QUIC) transport (outbound).
@@ -2788,10 +2835,10 @@ index 0000000..673ede8
 +}
 diff --git a/subduction_cli/tests/pull_peer.rs b/subduction_cli/tests/pull_peer.rs
 new file mode 100644
-index 0000000..8cd01be
+index 0000000..4d6073c
 --- /dev/null
 +++ b/subduction_cli/tests/pull_peer.rs
-@@ -0,0 +1,258 @@
+@@ -0,0 +1,379 @@
 +//! End-to-end test of `--ws-pull-peer`: a server takes a peer's data and
 +//! gives none back.
 +//!
@@ -2801,6 +2848,9 @@ index 0000000..8cd01be
 +//! commit written to `up` afterwards reaches `down`, and one written to
 +//! `down` never reaches `up`. A client subscribing at `down` to a document
 +//! only `up` holds gets it, since `down` passes the subscription on.
++//!
++//! Connecting pulls only what clients are subscribed to, not every document
++//! `down` holds, and a subscription keeps its live changes when `up` restarts.
 +
 +#![allow(
 +    clippy::expect_used,
@@ -2824,6 +2874,7 @@ index 0000000..8cd01be
 +};
 +use subduction_core::{
 +    connection::test_utils::TokioSpawn,
++    storage::traits::Storage,
 +    handler::sync::SyncHandler,
 +    policy::open::OpenPolicy,
 +    storage::memory::MemoryStorage,
@@ -2833,6 +2884,7 @@ index 0000000..8cd01be
 +    transport::message::MessageTransport,
 +};
 +use subduction_crypto::signer::memory::MemorySigner;
++use subduction_redb_storage::RedbStorage;
 +use subduction_http_longpoll::{
 +    client::HttpLongPollClient, http_client::reqwest_client::ReqwestHttpClient,
 +    transport::HttpLongPollTransport,
@@ -2893,12 +2945,23 @@ index 0000000..8cd01be
 +    path
 +}
 +
-+#[allow(clippy::zombie_processes)] // killed and waited on in `Drop`
 +async fn spawn_server(key_seed: &str, name: &str, data_dir: &Path, extra: &[&str]) -> Server {
++    spawn_server_at(0, key_seed, name, data_dir, extra).await
++}
++
++/// [`spawn_server`] on `port` (0 for any).
++#[allow(clippy::zombie_processes)] // killed and waited on in `Drop`
++async fn spawn_server_at(
++    port: u16,
++    key_seed: &str,
++    name: &str,
++    data_dir: &Path,
++    extra: &[&str],
++) -> Server {
 +    let ready = data_dir.join("ready");
 +    std::fs::remove_file(&ready).ok();
 +    let child = Command::new(cli_binary())
-+        .args(["server", "--socket", "127.0.0.1:0", "--auth", "open"])
++        .args(["server", "--socket", &format!("127.0.0.1:{port}"), "--auth", "open"])
 +        .args(["--key-seed", key_seed, "--service-name", name])
 +        .arg("--data-dir")
 +        .arg(data_dir)
@@ -3050,8 +3113,113 @@ index 0000000..8cd01be
 +    assert_eq!(received, 1, "first answer should carry up's commit");
 +    wait_for(&down, DOWN_NAME, other, &[5]).await;
 +}
++
++/// Connecting to `up` doesn't pull documents nobody here asked for: `down`
++/// knows a document `up` has more of, and still has only its own commit
++/// after connecting, though a client's request for another document goes
++/// through `up` meanwhile.
++#[tokio::test]
++async fn connecting_pulls_nothing_nobody_asked_for() {
++    let up_dir = tempfile::tempdir().expect("tmpdir");
++    let down_dir = tempfile::tempdir().expect("tmpdir");
++    let (known, asked) = (SedimentreeId::new([9; 32]), SedimentreeId::new([10; 32]));
++    let (up_seed, down_seed) = ("cc".repeat(32), "dd".repeat(32));
++
++    let up = spawn_server(&up_seed, UP_NAME, up_dir.path(), &[]).await;
++    write_commit(&up, 0x10, UP_NAME, known, 1).await;
++    write_commit(&up, 0x11, UP_NAME, asked, 3).await;
++
++    let down = spawn_server(&down_seed, DOWN_NAME, down_dir.path(), &[]).await;
++    write_commit(&down, 0x12, DOWN_NAME, known, 2).await;
++    drop(down);
++    let peer = format!("ws://localhost.:{}", up.port);
++    let down = spawn_server(
++        &down_seed,
++        DOWN_NAME,
++        down_dir.path(),
++        &["--ws-pull-peer", &peer],
++    )
++    .await;
++
++    // `down` is connected to `up` once a request goes through it.
++    wait_for(&down, DOWN_NAME, asked, &[3]).await;
++    // Room for a pass over every document, were there one.
++    tokio::time::sleep(Duration::from_secs(2)).await;
++    drop(down);
++
++    let stored = RedbStorage::new(down_dir.path()).expect("open down's store");
++    let held: BTreeSet<u8> = Storage::<Sendable>::list_commit_ids(&stored, known)
++        .await
++        .expect("list commits")
++        .iter()
++        .map(|id| id.as_bytes()[0])
++        .collect();
++    assert_eq!(held, [2].into(), "down pulled a document nobody asked for");
++}
++
++/// A client's subscription at `down` keeps getting `up`'s changes after `up`
++/// restarts: `down` subscribes there again when it reconnects.
++#[tokio::test]
++async fn subscriptions_survive_the_pull_peer_restarting() {
++    let up_dir = tempfile::tempdir().expect("tmpdir");
++    let down_dir = tempfile::tempdir().expect("tmpdir");
++    let id = SedimentreeId::new([11; 32]);
++    let (up_seed, down_seed) = ("ee".repeat(32), "ff".repeat(32));
++
++    let up = spawn_server(&up_seed, UP_NAME, up_dir.path(), &[]).await;
++    let port = up.port;
++    write_commit(&up, 0x10, UP_NAME, id, 1).await;
++    let peer = format!("ws://localhost.:{port}");
++    let down = spawn_server(
++        &down_seed,
++        DOWN_NAME,
++        down_dir.path(),
++        &["--ws-pull-peer", &peer],
++    )
++    .await;
++
++    let client = connect(&down.url(), 0x30, DOWN_NAME).await;
++    let mut held = BTreeSet::new();
++    for _ in 0..30 {
++        client
++            .sync_with_all_peers(id, true, SYNC_TIMEOUT)
++            .await
++            .expect("subscribe");
++        held = tags(&client, id).await;
++        if held.contains(&1) {
++            break;
++        }
++        tokio::time::sleep(Duration::from_millis(500)).await;
++    }
++    assert_eq!(held, [1].into(), "the client should get up's commit");
++
++    drop(up);
++    let up = spawn_server_at(port, &up_seed, UP_NAME, up_dir.path(), &[]).await;
++    write_commit(&up, 0x11, UP_NAME, id, 2).await;
++
++    // `down` notices the drop within its 10 second check, reconnects and
++    // subscribes again; the change is pushed on to the client.
++    for _ in 0..90 {
++        if tags(&client, id).await.contains(&2) {
++            return;
++        }
++        tokio::time::sleep(Duration::from_millis(500)).await;
++    }
++    panic!("the client never got up's change after up restarted");
++}
++
++/// The commit tags `client` holds for `id`.
++async fn tags(client: &Client, id: SedimentreeId) -> BTreeSet<u8> {
++    client
++        .get_commits(id)
++        .await
++        .unwrap_or_default()
++        .iter()
++        .map(|c| c.head().as_bytes()[0])
++        .collect()
++}
 diff --git a/subduction_core/src/handler/sync.rs b/subduction_core/src/handler/sync.rs
-index dc8bdcf..5bb53fb 100644
+index bd9f499..9a7a344 100644
 --- a/subduction_core/src/handler/sync.rs
 +++ b/subduction_core/src/handler/sync.rs
 @@ -52,6 +52,9 @@ use crate::{
@@ -3565,7 +3733,7 @@ index 0000000..7789801
 +    }
 +}
 diff --git a/subduction_core/src/subduction/ingest.rs b/subduction_core/src/subduction/ingest.rs
-index 52befd5..ede415c 100644
+index 17477c1..966d441 100644
 --- a/subduction_core/src/subduction/ingest.rs
 +++ b/subduction_core/src/subduction/ingest.rs
 @@ -310,10 +310,10 @@ pub(crate) async fn insert_commit_locally<

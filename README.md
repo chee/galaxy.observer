@@ -14,7 +14,7 @@ over WebSocket, HTTP long-poll and iroh. `GET /` is the homepage in
 | `subduction.patch` | Changes to upstream's `subduction_cli` server and `subduction_core`, against the commit pinned in the `Dockerfile`. |
 | `public/` | The homepage. |
 | `migrate/` | One-off job that copied the old automerge-repo server's Postgres storage (starlight, now deleted) into this server, keeping document IDs. It patches upstream's ingest tool to wait until the server confirms each document. |
-| `subduction.rev` | The upstream commit the patch is made against (upstream's latest as of 2026-09-30, `keyhive_core` 0.6, which talks to `automerge-repo-keyhive` 0.6 clients). |
+| `subduction.rev` | The upstream commit the patch is made against (upstream's latest as of 2026-10-15, `keyhive_core` 0.7, which talks to `automerge-repo-keyhive` 0.7 clients). |
 | `.github/workflows/image.yml`, `Dockerfile.runtime` | On every push to `subduction`: build the server once and publish `ghcr.io/chee/galaxy.observer`. Deploys pull that image. |
 | `Dockerfile`, `start.sh` | The same build from source in one Dockerfile, and the start script both images run. |
 
@@ -29,8 +29,10 @@ The patch gives the server:
   Before answering a client's request for a document, the server syncs it
   with the peer (at most 5 seconds; skipped once it is subscribed there), so
   a document only the peer holds is in the first answer. On every
-  (re)connect it also syncs each document it holds with the peer and
-  subscribes. The peer is refused every fetch and gets no document data or
+  (re)connect it subscribes there again to the documents clients are
+  subscribed to here; other documents are pulled when a client asks for
+  them, so connecting doesn't load every document the server holds. The
+  peer is refused every fetch and gets no document data or
   presence; keyhive ops flow both ways. It is greeted with the URL's host,
   less any trailing dot, as its service name.
 - `--serve-iroh-relay`: be an iroh relay on the sync port. WebSocket
