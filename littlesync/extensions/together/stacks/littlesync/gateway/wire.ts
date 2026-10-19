@@ -12,6 +12,9 @@ export const KEY = 34
 // a held value goes after this long without a beat; a device beats this often (LS_HELD_MS, LS_BEAT_MS)
 export const HELD_MS = 4000
 export const BEAT_MS = 1000
+// a message's topic at most, in bytes (UTF-8, LS_TOPIC_MAX); its bytes at most by default (LS_MESSAGE)
+export const TOPIC_MAX = 256
+export const MESSAGE = 4096
 
 export type Message =
 	| { t: "hello"; key: Uint8Array; stack: string; re?: boolean }
@@ -20,9 +23,11 @@ export type Message =
 	| { t: "commits"; node: Uint8Array; sealed: Uint8Array[] }
 	| { t: "ephemeral"; node: Uint8Array; commit: Uint8Array }
 	| { t: "ack"; node: Uint8Array; names: Uint8Array[] }
-	// a presence row: presence.ts's message (CBOR, {ttl, value} or {gone: true}) as its channel sends
-	// it on the topic "ermine://<node's hex>", and who sent it (a key, as the C side takes it: 1 to 34 bytes)
-	| { t: "presence"; node: Uint8Array; who: Uint8Array; row: Uint8Array }
+	// the topics the sender wants sent to it (all: every one), the whole list each time
+	| { t: "listen"; topics: string[]; all?: boolean }
+	// a short-lived message: bytes on a topic (presence.ts's channel's: a presence row on a room's), and
+	// who said them (a key, as the C side takes it: 1 to 34 bytes)
+	| { t: "say"; topic: string; who: Uint8Array; bytes: Uint8Array }
 
 export function encode(m: Message): Uint8Array {
 	const o: Record<string, cbor.Value> = {}
@@ -32,6 +37,9 @@ export function encode(m: Message): Uint8Array {
 
 const isBytes = (x: unknown, n?: number): x is Uint8Array =>
 	x instanceof Uint8Array && (n === undefined || x.length === n)
+const utf8 = new TextEncoder()
+export const isTopic = (x: unknown): x is string =>
+	typeof x === "string" && x.length > 0 && !x.includes("\0") && utf8.encode(x).length <= TOPIC_MAX
 // a list of names: what is not a name in it is left out (the C side skips those)
 const names = (x: unknown) =>
 	Array.isArray(x) ? x.filter((n): n is Uint8Array => isBytes(n, NAME)) : undefined
@@ -52,6 +60,17 @@ export function decode(bytes: Uint8Array): Message | undefined {
 			if (!isBytes(o.key, KEY) || typeof o.stack !== "string") return
 			if (!o.stack.startsWith("littlesync/")) return
 			return { t: "hello", key: o.key, stack: o.stack, ...re }
+		case "listen": {
+			if (!Array.isArray(o.topics) && o.all !== true) return
+			const topics = Array.isArray(o.topics) ? [...new Set(o.topics.filter(isTopic))] : []
+			return { t: "listen", topics, ...o.all === true && { all: true } }
+		}
+		case "say":
+			if (!isTopic(o.topic) || !isBytes(o.who) || o.who.length === 0 || o.who.length > KEY) {
+				return
+			}
+			if (!isBytes(o.bytes)) return
+			return { t: "say", topic: o.topic, who: o.who, bytes: o.bytes }
 	}
 	if (typeof o.t !== "string" || !isBytes(o.node, 32)) return
 	const node = o.node
@@ -71,9 +90,6 @@ export function decode(bytes: Uint8Array): Message | undefined {
 		}
 		case "ephemeral":
 			return isBytes(o.commit) ? { t: "ephemeral", node, commit: o.commit } : undefined
-		case "presence":
-			if (!isBytes(o.who) || o.who.length === 0 || o.who.length > KEY || !isBytes(o.row)) return
-			return { t: "presence", node, who: o.who, row: o.row }
 	}
 }
 

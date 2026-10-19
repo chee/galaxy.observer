@@ -19,15 +19,19 @@
 //                   again sends it again; a new one replaces it; a stop goes when the device's next
 //                   stored commit there lands, or after HELD_MS with no beat. one heard from the room
 //                   goes to each device naming the node as it came, then is let go of here
-//   presence        a row (presence.ts's message, the bytes as they came) goes both ways unchanged,
-//                   on the topic "ermine://<node's hex>". room → device: each row heard on the topic
-//                   of a node a device names, with its sender's key as who. device → room: the server
-//                   relays an ephemeral under its publisher's key, and presence names a row by it, so
-//                   each device key (who) gets a Subduction peer of its own here, a key made for it
-//                   (its rows' name in the room), connected as the upstream is (keep's dial, connect's
-//                   url, or options.peer), let go of PEER_IDLE ms after its last row; rows heard back
-//                   from those keys are not sent down again. also on to the other devices naming the
-//                   node, as it came (the C side relays so)
+//   messages        a say (bytes on a topic: a presence row, presence.ts's message, on a room's
+//                   topic "ermine://<node's hex>"; any other, "dens:root") goes both ways unchanged, a
+//                   littlesync topic the same string as the together device's channel topic (send,
+//                   listen: Subduction's ephemeral topic is its hash). each device is told listen all
+//                   (what it says goes up); the topics it says it listens to are listened to upstream.
+//                   room → device: each message heard on a topic a device listens to, its sender's key
+//                   as who. device → room: the server relays an ephemeral under its publisher's key,
+//                   and presence names a row by it, so each device key (who) gets a Subduction peer of
+//                   its own here, a key made for it (its messages' name in the room), connected as the
+//                   upstream is (keep's dial, connect's url, or options.peer), let go of PEER_IDLE ms
+//                   after its last message; messages heard back from those keys are not sent down
+//                   again. also on to the other devices listening to the topic, as it came (the C side
+//                   relays so)
 //   upstream        kept (keep): a lost connection is dialled again, a while longer between tries
 //                   each time; once made, the followed nodes are subscribed and fetched again and the
 //                   ephemeral topics subscribed again (the stack's connect). while there is none, a
@@ -55,7 +59,7 @@ import type { Device } from "../../../typescript/transport.ts"
 import type { Socket } from "./socket.ts"
 import { Link } from "./link.ts"
 import { FRAME_MAX } from "./frame.ts"
-import { HELD_MS, MERGE, type Message, peek } from "./wire.ts"
+import { HELD_MS, MERGE, MESSAGE, type Message, peek } from "./wire.ts"
 
 // seals in one commits message, about (the C side's CHUNK); one seal over SEAL_MAX makes a frame
 // over FRAME_MAX, which the device drops
@@ -72,8 +76,11 @@ const REFUSALS = 256
 const FIRST = 500
 const MOST = 30000
 const DIAL = 20000
-// a device's presence peer let go of this long after its last row (a row is renewed every 2 s, lasts 6)
+// a device's peer upstream let go of this long after its last message (a row is renewed every 2 s,
+// lasts 6)
 const PEER_IDLE = 10000
+// a device told again what the gateway wants (all) this often, as the C side's heads beat
+const LISTEN_MS = 10000
 
 export type Refusal = { node: string; name: string; from: string; reason: string }
 
@@ -91,8 +98,9 @@ export type Stats = {
 	// merge commits seen in the gateway path, by rule; from devices, from the room
 	merges: { device: number; room: number; rules: Record<string, number> }
 	ephemeral: { in: number; out: number; stops: number }
-	// presence rows: from devices, to devices; device keys with a peer of their own upstream now
-	presence: { in: number; out: number; peers: number }
+	// messages (say): from devices, to devices, heard too big for a device (over MESSAGE); device keys
+	// with a peer of their own upstream now
+	messages: { in: number; out: number; big: number; peers: number }
 	// the server: connected now, connections made, connections lost, acks held while there is none
 	upstream: { up: boolean; connects: number; drops: number; held: number }
 }
@@ -105,6 +113,9 @@ export type Conn = {
 	link: Link
 	// the nodes the device names
 	follows: Set<string>
+	// the topics it listens to (its last listen), or all
+	listens: Set<string>
+	all: boolean
 }
 
 export type Gateway = {
@@ -154,6 +165,8 @@ type State = {
 	holds: Map<string, Hold>
 	// names taken from it while there was no upstream, by node: acked once there is one
 	unacked: Map<string, Set<string>>
+	// when it was last told listen all
+	told: number
 }
 
 const short = (s: string) => s.replace(/^ermine:\/\//, "").slice(0, 8)
@@ -165,8 +178,8 @@ export function createGateway(options: {
 	storage?: sd.SedimentreeStorage
 	// the server's service name, for keep's connections (connectTransport's too); default "ermine"
 	service?: string
-	// how a device's presence peer reaches the server (it connects as connect is given); default
-	// keep's dial, or connect's url. none of these: device rows go to other devices only
+	// how a device's peer upstream reaches the server (it connects as connect is given); default
+	// keep's dial, or connect's url. none of these: device messages go to other devices only
 	peer?: (connect: (transport: sd.Transport, initiator: boolean) => Promise<void>) => Promise<void>
 }): Gateway {
 	const now = options.now ?? Date.now
@@ -192,7 +205,7 @@ export function createGateway(options: {
 		big: 0,
 		merges: { device: 0, room: 0, rules: {} },
 		ephemeral: { in: 0, out: 0, stops: 0 },
-		presence: { in: 0, out: 0, peers: 0 },
+		messages: { in: 0, out: 0, big: 0, peers: 0 },
 		upstream: { up: false, connects: 0, drops: 0, held: 0 },
 	}
 	const refusals: Refusal[] = []
@@ -238,7 +251,6 @@ export function createGateway(options: {
 		})
 		log(`follow ${short(id)}`)
 		device.follow(id).catch((e) => log(`follow ${short(id)}: ${e}`))
-		device.listen(id, (from, row) => heard(node, from, row))
 		return n
 	}
 
@@ -457,58 +469,80 @@ export function createGateway(options: {
 		s.holds.set(node.id, { from, made: name, table: c.table, signer: hex(c.signer), last: now() })
 	}
 
-	// ---- presence
+	// ---- messages
 
-	type Peer = { key?: string; device?: Device; rows: Map<string, Uint8Array>; last: number }
-	// by the device's key (hex); the keys made for them (hex), whose rows heard back stay up there
+	type Peer = { key?: string; device?: Device; said: Map<string, Uint8Array>; last: number }
+	// by the device's key (hex); the keys made for them (hex), whose messages heard back stay up there
 	const peers = new Map<string, Peer>()
 	const ours = new Set<string>()
 	// how a peer reaches the server: once it has, ended (a socket's close) ends the peer
 	type Reach = (d: Device) => Promise<{ ended?: Promise<void> } | void>
 	const given = options.peer
 	let reach: Reach | undefined = given && ((d) => given((t, initiator) => d.connect(t, initiator)))
+	// the topics listened to upstream (some device listens): their stops
+	const listening = new Map<string, () => void>()
 
-	// a row heard on a node's topic: down to each device naming the node
-	function heard(node: Node, from: string, row: Uint8Array) {
+	const wants = (s: State, topic: string) => s.conn.all || s.conn.listens.has(topic)
+
+	// what the devices listen to, listened to upstream; what none does any more, let go of
+	function listened() {
+		const all = new Set<string>()
+		for (const s of states) for (const t of s.conn.listens) all.add(t)
+		for (const t of all) {
+			if (!listening.has(t)) {
+				listening.set(t, device.listen(t, (from, bytes) => heard(t, from, bytes)))
+			}
+		}
+		for (const [t, stop] of [...listening]) if (!all.has(t)) stop(), listening.delete(t)
+	}
+
+	// a device told the gateway wants every topic: what it says goes up
+	function tell(s: State) {
+		s.told = now()
+		s.conn.link.send({ t: "listen", topics: [], all: true })
+	}
+
+	// a message heard on a topic upstream: down to each device listening to it
+	function heard(topic: string, from: string, bytes: Uint8Array) {
 		if (ours.has(from)) return
+		if (bytes.length > MESSAGE) return void stats.messages.big++
 		for (const s of states) {
-			if (!s.conn.follows.has(node.id)) continue
-			s.conn.link.send({ t: "presence", node: node.bytes, who: unhex(from), row })
-			stats.presence.out++
+			if (!wants(s, topic)) continue
+			s.conn.link.send({ t: "say", topic, who: unhex(from), bytes })
+			stats.messages.out++
 		}
 		pumpAll()
 	}
 
-	function presence(s: State, node: Node, who: Uint8Array, row: Uint8Array) {
-		stats.presence.in++
+	function said(s: State, topic: string, who: Uint8Array, bytes: Uint8Array) {
+		stats.messages.in++
 		for (const o of states) {
-			if (o !== s && o.conn.follows.has(node.id)) {
-				o.conn.link.send({ t: "presence", node: node.bytes, who, row })
-			}
+			if (o !== s && wants(o, topic)) o.conn.link.send({ t: "say", topic, who, bytes })
 		}
 		const k = hex(who)
-		// a row from the room come back round (links in a ring), or no way up now
+		// one from the room come back round (links in a ring), or no way up now
 		if (ours.has(k) || reach === undefined || !stats.upstream.up) return
 		let p = peers.get(k)
 		if (p === undefined) peers.set(k, p = openPeer(k))
 		p.last = now()
-		if (p.device === undefined) return void p.rows.set(node.id, row)
-		void p.device.send(node.id, row).catch(() => {})
-		if (gone(row)) p.last = now() - PEER_IDLE + 1000
+		if (p.device === undefined) return void p.said.set(topic, bytes)
+		void p.device.send(topic, bytes).catch(() => {})
+		if (gone(bytes)) p.last = now() - PEER_IDLE + 1000
 	}
 
-	const gone = (row: Uint8Array) => {
+	// a presence row's gone (presence.ts's {gone: true})
+	const gone = (bytes: Uint8Array) => {
 		try {
-			return (cbor.decode(row) as { gone?: unknown })?.gone === true
+			return (cbor.decode(bytes) as { gone?: unknown })?.gone === true
 		} catch {
 			return false
 		}
 	}
 
-	// a device's peer upstream: a key of its own, connected; the rows that came meanwhile, the last
-	// of each node, sent once it is
+	// a device's peer upstream: a key of its own, connected; the messages that came meanwhile, the last
+	// of each topic, sent once it is
 	function openPeer(k: string): Peer {
-		const p: Peer = { rows: new Map(), last: now() }
+		const p: Peer = { said: new Map(), last: now() }
 		;(async () => {
 			const signer = await createSigner()
 			p.key = hex(signer.key)
@@ -520,12 +554,12 @@ export function createGateway(options: {
 			if (peers.get(k) !== p) return void d.close().catch(() => {})
 			r?.ended?.then(() => peers.get(k) === p && closePeer(k, p))
 			p.device = d
-			stats.presence.peers++
-			log(`presence peer ${p.key.slice(4, 12)} for ${k.slice(4, 12)}`)
-			for (const [id, row] of p.rows) await d.send(id, row).catch(() => {})
-			p.rows.clear()
+			stats.messages.peers++
+			log(`peer ${p.key.slice(4, 12)} for ${k.slice(4, 12)}`)
+			for (const [topic, bytes] of p.said) await d.send(topic, bytes).catch(() => {})
+			p.said.clear()
 		})().catch((e) => {
-			log(`presence peer for ${k.slice(4, 12)}: ${(e as Error)?.message ?? e}`)
+			log(`peer for ${k.slice(4, 12)}: ${(e as Error)?.message ?? e}`)
 			if (peers.get(k) === p) closePeer(k, p)
 		})
 		return p
@@ -535,7 +569,7 @@ export function createGateway(options: {
 		peers.delete(k)
 		if (p.key) ours.delete(p.key)
 		if (p.device === undefined) return
-		stats.presence.peers--
+		stats.messages.peers--
 		void p.device.close().catch(() => {})
 	}
 
@@ -555,8 +589,15 @@ export function createGateway(options: {
 			s.sent.clear()
 			s.acked.clear()
 			for (const id of s.conn.follows) offer(s, nodeOf(id), all(nodeOf(id)))
+			tell(s)
 			return
 		}
+		if (m.t === "listen") {
+			s.conn.listens = new Set(m.topics)
+			s.conn.all = m.all === true
+			return listened()
+		}
+		if (m.t === "say") return said(s, m.topic, m.who, m.bytes)
 		const id = "ermine://" + hex(m.node)
 		const node = nodeOf(id)
 		if (!s.conn.follows.has(id)) s.conn.follows.add(id)
@@ -582,8 +623,6 @@ export function createGateway(options: {
 				return
 			case "ephemeral":
 				return ephemeral(s, node, m.commit)
-			case "presence":
-				return presence(s, node, m.who, m.row)
 			case "commits": {
 				const names = m.sealed.map(peek).filter((c) => c !== undefined).map((c) => nameOf(c!))
 				serial(async () => {
@@ -625,8 +664,8 @@ export function createGateway(options: {
 
 	const keeps = new Set<() => void>()
 	function keep(dial: () => Promise<Socket>) {
-		// a presence peer dials as the gateway does; its socket gone, the peer goes (made again at
-		// the device's next row)
+		// a device's peer dials as the gateway does; its socket gone, the peer goes (made again at
+		// the device's next message)
 		reach ??= async (d) => {
 			const s = await dial()
 			try {
@@ -703,6 +742,8 @@ export function createGateway(options: {
 			const conn: Conn = {
 				link,
 				follows: new Set(),
+				listens: new Set(),
+				all: false,
 				feed(bytes) {
 					link.feed(bytes, now())
 					pump(s)
@@ -713,6 +754,7 @@ export function createGateway(options: {
 					states.delete(s)
 					stats.links--
 					for (const [id, h] of [...s.holds]) unhold(s, id, h)
+					listened()
 					log("link closed")
 				},
 			}
@@ -724,10 +766,12 @@ export function createGateway(options: {
 				acked: new Map(),
 				holds: new Map(),
 				unacked: new Map(),
+				told: 0,
 			})
 			states.add(s)
 			stats.links++
 			link.tick(now())
+			tell(s)
 			pump(s)
 			log("link open")
 			return conn
@@ -737,6 +781,7 @@ export function createGateway(options: {
 			for (const [k, p] of [...peers]) if (t - p.last > PEER_IDLE) closePeer(k, p)
 			for (const s of states) {
 				s.conn.link.tick(t)
+				if (s.conn.link.up && t - s.told >= LISTEN_MS) tell(s)
 				for (const [id, h] of [...s.holds]) if (t - h.last > HELD_MS) unhold(s, id, h)
 				for (const [id, sent] of s.sent) {
 					const due = [...sent].filter(([n, w]) =>
@@ -765,6 +810,8 @@ export function createGateway(options: {
 		async close() {
 			for (const s of [...states]) s.conn.close()
 			for (const [k, p] of [...peers]) closePeer(k, p)
+			for (const [, stop] of listening) stop()
+			listening.clear()
 			for (const stop of [...keeps]) stop()
 			await device.close()
 		},
