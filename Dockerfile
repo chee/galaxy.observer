@@ -1,5 +1,6 @@
 # galaxy.observer: a Subduction sync server (github.com/inkandswitch/subduction)
-# built with this repo's object storage backend and server patch.
+# built with this repo's object storage backend and server patch, and the
+# littlesync gateway beside it.
 #
 # This builds everything from source. Deploys use the image the `image`
 # workflow publishes instead (see Dockerfile.runtime).
@@ -19,11 +20,18 @@ COPY subduction.patch /tmp/subduction.patch
 RUN git apply /tmp/subduction.patch
 RUN cargo build --release --locked -p subduction_cli
 
+# The littlesync gateway, compiled from littlesync/ into one executable.
+FROM denoland/deno:debian-2.9.7 AS gateway
+WORKDIR /src
+COPY littlesync ./littlesync
+RUN sh littlesync/build.sh /littlesync-gateway
+
 FROM debian:bookworm-slim
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends ca-certificates libssl3 \
 	&& rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/target/release/subduction_cli /usr/local/bin/subduction_cli
+COPY --from=gateway /littlesync-gateway /usr/local/bin/littlesync-gateway
 COPY public /srv/public
 COPY start.sh /usr/local/bin/start.sh
 CMD ["/usr/local/bin/start.sh"]

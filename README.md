@@ -4,7 +4,8 @@ A [Subduction](https://github.com/inkandswitch/subduction) sync server with
 keyhive, storing in a volume or an S3-compatible bucket, and an
 [iroh](https://iroh.computer) relay at `https://galaxy.observer`. It syncs
 over WebSocket, HTTP long-poll and iroh. `GET /` is the homepage in
-`public/`.
+`public/`. Beside it runs ermine's littlesync gateway, for littlesync devices,
+at `/littlesync`.
 
 ## What's here
 
@@ -13,9 +14,10 @@ over WebSocket, HTTP long-poll and iroh. `GET /` is the homepage in
 | `subduction_object_storage/` | A Rust crate: Subduction's `Storage` (and keyhive's `KeyhiveStorage`) over an object store. Standalone, builds against the published subduction crates. See its README. |
 | `subduction.patch` | Changes to upstream's `subduction_cli` server and `subduction_core`, against the commit pinned in the `Dockerfile`. |
 | `public/` | The homepage. |
+| `littlesync/` | ermine's littlesync gateway, copied from an ermine checkout by `vendor.sh`; `build.sh` compiles it into one executable. |
 | `migrate/` | One-off job that copied the old automerge-repo server's Postgres storage (starlight, now deleted) into this server, keeping document IDs. It patches upstream's ingest tool to wait until the server confirms each document. |
 | `subduction.rev` | The upstream commit the patch is made against (upstream's latest as of 2026-09-30, `keyhive_core` 0.6, which talks to `automerge-repo-keyhive` 0.6 clients). |
-| `.github/workflows/image.yml`, `Dockerfile.runtime` | On every push to `subduction`: build the server once and publish `ghcr.io/chee/galaxy.observer`. Deploys pull that image. |
+| `.github/workflows/image.yml`, `Dockerfile.runtime` | On every push to `subduction`: build the server and the gateway once and publish `ghcr.io/chee/galaxy.observer`. Deploys pull that image. |
 | `Dockerfile`, `start.sh` | The same build from source in one Dockerfile, and the start script both images run. |
 
 The patch gives the server:
@@ -48,6 +50,9 @@ The patch gives the server:
   made a new one each start. `start.sh` turns iroh on with this server's own
   relay as its home, which is how iroh peers reach it, since Railway routes
   no inbound UDP.
+- `--littlesync-gateway <ADDR>`: pass connections whose first request is for
+  `/littlesync` or `/littlesync/...` through to the gateway at that address,
+  as they are: WebSocket upgrades and plain HTTP (kept alive, long polls).
 - `--static-dir <DIR>`: serve files to plain `GET` requests on the sync port.
   Each plain request gets its own connection, so a client's later WebSocket
   upgrade never lands on a page connection.
@@ -69,9 +74,30 @@ The patch gives the server:
 | `SUBDUCTION_PULL_PEERS` | unset | space-separated `wss://` URLs to pull from but never push to, e.g. `wss://subduction.sync.inkandswitch.com` |
 | `SUBDUCTION_IROH_PULL_PEERS` | unset | space-separated `ENDPOINT_ID@SERVICE_NAME` iroh peers to pull from but never push to |
 | `SUBDUCTION_KEY_SEED` | unset | 64 hex characters; unset generates a key at `/data/key` |
+| `GATEWAY_SEED` | unset | 64 hex characters: the littlesync gateway's key (its peer ID); unset generates one at `/data/littlesync-key` |
+| `LITTLESYNC_PORT` | `8081` | the gateway's own port, inside the container |
+| `QUIET` | unset | `1`: the gateway logs only its upstream lines, not one per message |
 | `PORT` | `8080` | |
 
-With a bucket and `SUBDUCTION_KEY_SEED` the server needs no volume.
+With a bucket, `SUBDUCTION_KEY_SEED` and `GATEWAY_SEED` the server needs no volume.
+
+## The littlesync gateway
+
+`littlesync/` holds the gateway (`extensions/together/stacks/littlesync/gateway/main.ts`
+in ermine, where its README says what it does) and every ermine file it
+imports, at the same paths; `VENDORED` says which ermine commit. `start.sh`
+runs it beside the server as a Subduction client of `ws://127.0.0.1:$PORT`,
+and the container stops when either one does. Copy it again from a checkout of
+ermine beside this one:
+
+```sh
+sh littlesync/vendor.sh ../ermine
+sh littlesync/build.sh /tmp/littlesync-gateway   # the executable the image gets
+```
+
+The image workflow compiles it with Deno; the npm packages it uses
+(`@automerge/subduction`, `@noble/hashes`) are pinned in `littlesync/deno.lock`
+and fetched then.
 
 ## Working on the server patch
 

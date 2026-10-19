@@ -50,10 +50,17 @@ jobs:
         working-directory: subduction
         run: cargo test --release --locked -p subduction_object_storage --all-features
 
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.7
+
+      - name: Build the littlesync gateway
+        run: sh littlesync/build.sh littlesync-gateway
+
       - name: Assemble the image context
         run: |
           mkdir image
-          cp subduction/target/release/subduction_cli start.sh image/
+          cp subduction/target/release/subduction_cli littlesync-gateway start.sh image/
           cp -R public image/
 
       - uses: docker/login-action@v3

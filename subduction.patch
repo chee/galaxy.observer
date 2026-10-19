@@ -909,7 +909,7 @@ index 8d36eee..ab41cc1 100644
  subduction_http_longpoll = { workspace = true, features = [
    "metrics",
 diff --git a/subduction_cli/README.md b/subduction_cli/README.md
-index 92ebd82..b579179 100644
+index 92ebd82..e54df4d 100644
 --- a/subduction_cli/README.md
 +++ b/subduction_cli/README.md
 @@ -133,6 +133,20 @@ subduction_cli server --socket 0.0.0.0:8080 --key-file ./key
@@ -933,7 +933,7 @@ index 92ebd82..b579179 100644
  #### Transport Options
  
  | Flag | Default | Description |
-@@ -350,6 +364,35 @@ Caddy automatically handles WebSocket upgrades and TLS certificates.
+@@ -350,6 +364,42 @@ Caddy automatically handles WebSocket upgrades and TLS certificates.
  
  </details>
  
@@ -965,6 +965,13 @@ index 92ebd82..b579179 100644
 +endpoints use it by setting the server's URL (e.g. `https://sync.example.com`)
 +as their relay URL. Anyone may relay through it. QUIC address discovery is not
 +served, since it needs its own UDP port and TLS.
++
++## littlesync gateway
++
++`--littlesync-gateway <ADDR>` passes every connection whose first request is
++for `/littlesync` or `/littlesync/...` through to that address, as it is:
++WebSocket upgrades and plain HTTP (kept alive, long polls) alike. The gateway
++runs beside the server and syncs with it as a client.
 +
  ## Monitoring
  
@@ -1212,7 +1219,7 @@ index a17751f..0be90da 100644
              return async { ids }.boxed();
          };
 diff --git a/subduction_cli/src/server.rs b/subduction_cli/src/server.rs
-index 77ada8f..f326cec 100644
+index 77ada8f..0d0bf97 100644
 --- a/subduction_cli/src/server.rs
 +++ b/subduction_cli/src/server.rs
 @@ -14,6 +14,7 @@ use eyre::Result;
@@ -1293,7 +1300,7 @@ index 77ada8f..f326cec 100644
      /// Enable the Iroh (QUIC) transport for NAT-traversing P2P connections
      #[arg(long, default_value_t = false)]
      pub(crate) iroh: bool,
-@@ -217,6 +244,14 @@ pub(crate) struct ServerArgs {
+@@ -217,6 +244,20 @@ pub(crate) struct ServerArgs {
      #[arg(long = "iroh-relay-url", value_name = "URL")]
      pub(crate) iroh_relay_url: Option<String>,
  
@@ -1305,10 +1312,16 @@ index 77ada8f..f326cec 100644
 +    #[arg(long = "serve-iroh-relay")]
 +    pub(crate) serve_iroh_relay: bool,
 +
++    /// Pass connections to `/littlesync` and `/littlesync/...` on the sync
++    /// port through to a littlesync gateway at this address, as they are:
++    /// WebSocket upgrades and plain HTTP (kept alive, long polls) alike.
++    #[arg(long = "littlesync-gateway", value_name = "ADDR")]
++    pub(crate) littlesync_gateway: Option<SocketAddr>,
++
      /// Write a JSON file on startup with the assigned port, peer ID, and iroh node ID.
      /// Useful for integration tests that need to discover the server's address.
      #[arg(long = "ready-file", value_name = "PATH")]
-@@ -276,6 +311,13 @@ impl ServerArgs {
+@@ -276,6 +317,13 @@ impl ServerArgs {
      }
  }
  
@@ -1322,7 +1335,7 @@ index 77ada8f..f326cec 100644
  /// Default interval for refreshing storage metrics (1 minute).
  const DEFAULT_METRICS_REFRESH_SECS: u64 = 60;
  
-@@ -299,19 +341,27 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
+@@ -299,19 +347,27 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
  
      // Initialize the full keyhive stack: storage, identity, protocol, ingest.
      let keyhive_signer = key::keyhive_signer_from_seed(&common.seed);
@@ -1354,7 +1367,7 @@ index 77ada8f..f326cec 100644
          kh_peer_id,
          contact_card,
      ));
-@@ -351,9 +401,10 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
+@@ -351,9 +407,10 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
          common,
          storage_policy,
          Some(keyhive_protocol),
@@ -1367,7 +1380,7 @@ index 77ada8f..f326cec 100644
          },
      )
      .await
-@@ -374,7 +425,10 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
+@@ -374,7 +431,10 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
          common,
          storage_policy,
          None,
@@ -1379,7 +1392,7 @@ index 77ada8f..f326cec 100644
      )
      .await
  }
-@@ -385,7 +439,9 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
+@@ -385,7 +445,9 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
  struct SetupCommon {
      addr: SocketAddr,
      data_dir: PathBuf,
@@ -1390,7 +1403,7 @@ index 77ada8f..f326cec 100644
      seed: [u8; 32],
      signer: MemorySigner,
      peer_id: PeerId,
-@@ -414,18 +470,13 @@ impl SetupCommon {
+@@ -414,18 +476,13 @@ impl SetupCommon {
              );
          }
  
@@ -1415,7 +1428,7 @@ index 77ada8f..f326cec 100644
  
          // Background metrics refresh
          if args.metrics {
-@@ -510,6 +561,7 @@ impl SetupCommon {
+@@ -510,6 +567,7 @@ impl SetupCommon {
              addr,
              data_dir,
              storage,
@@ -1423,7 +1436,7 @@ index 77ada8f..f326cec 100644
              seed,
              signer,
              peer_id,
-@@ -521,6 +573,36 @@ impl SetupCommon {
+@@ -521,6 +579,36 @@ impl SetupCommon {
      }
  }
  
@@ -1460,7 +1473,7 @@ index 77ada8f..f326cec 100644
  /// Build the Subduction instance and run the transport accept loops.
  ///
  /// Generic over the composed handler `H`. `keyhive_protocol` is `None` in open
-@@ -533,15 +615,17 @@ async fn serve<H, F>(
+@@ -533,15 +621,17 @@ async fn serve<H, F>(
      common: SetupCommon,
      storage_policy: Arc<CliKeyhivePolicyHandle>,
      keyhive_protocol: Option<CliKeyhiveProtocol>,
@@ -1479,7 +1492,7 @@ index 77ada8f..f326cec 100644
          signer,
          peer_id,
          handshake_max_drift,
-@@ -553,7 +637,7 @@ where
+@@ -553,7 +643,7 @@ where
  
      let builder = SubductionBuilder::new()
          .signer(signer.clone())
@@ -1488,7 +1501,7 @@ index 77ada8f..f326cec 100644
          .spawner(TokioSpawn)
          .timer(FuturesTimerTimeout)
          // Seeded so sequences resume above previous values across restarts;
-@@ -578,6 +662,7 @@ where
+@@ -578,6 +668,7 @@ where
      };
  
      let mut requestor_tally = None;
@@ -1496,7 +1509,7 @@ index 77ada8f..f326cec 100644
      let (subduction, listener_fut, manager_fut, ephemeral): (CliSubduction<H>, _, _, _) = builder
          .build_composed(|sync_handler| {
              requestor_tally = Some(sync_handler.requestor_tally());
-@@ -604,13 +689,20 @@ where
+@@ -604,13 +695,20 @@ where
                  }
              });
  
@@ -1518,7 +1531,7 @@ index 77ada8f..f326cec 100644
      // Periodically publish the in-memory cache occupancy and the top-requestor
      // window. Lives here (not in the storage refresh task) because both come
      // from `Subduction`/handler state, not the storage backend. The resident
-@@ -768,6 +860,12 @@ where
+@@ -768,6 +866,13 @@ where
      let ws_keepalive = KeepAlive::balanced();
  
      let accept_keyhive = keyhive_protocol.clone();
@@ -1528,20 +1541,22 @@ index 77ada8f..f326cec 100644
 +    } else {
 +        None
 +    };
++    let littlesync_gateway = args.littlesync_gateway;
      let accept_task = tokio::spawn(async move {
          accept_loop(
              tcp_listener,
-@@ -775,6 +873,9 @@ where
+@@ -775,6 +880,10 @@ where
              accept_ephemeral,
              accept_handler,
              accept_keyhive,
 +            contact_card_json,
 +            static_dir,
 +            iroh_relay,
++            littlesync_gateway,
              accept_cancel,
              handshake_max_drift,
              max_message_size,
-@@ -802,7 +903,10 @@ where
+@@ -802,7 +911,10 @@ where
              iroh::endpoint::RelayMode::Default
          };
  
@@ -1552,7 +1567,7 @@ index 77ada8f..f326cec 100644
              .alpns(vec![subduction_iroh::ALPN.to_vec()])
              .relay_mode(relay_mode)
              .bind()
-@@ -958,6 +1062,7 @@ where
+@@ -958,6 +1070,7 @@ where
                  peer_max_message_size,
                  peer_max_frame_size,
                  peer_keepalive,
@@ -1560,7 +1575,7 @@ index 77ada8f..f326cec 100644
              )
              .await
              {
-@@ -971,6 +1076,44 @@ where
+@@ -971,6 +1084,44 @@ where
          });
      }
  
@@ -1605,7 +1620,7 @@ index 77ada8f..f326cec 100644
      // Write ready file if requested (for integration tests)
      if let Some(ref ready_path) = args.ready_file {
          let iroh_line = iroh_node_id
-@@ -1045,6 +1188,91 @@ fn publish_disk_usage(data_dir: &std::path::Path) {
+@@ -1045,6 +1196,131 @@ fn publish_disk_usage(data_dir: &std::path::Path) {
      subduction_core::metrics::set_redb_file_bytes(redb_bytes);
  }
  
@@ -1619,7 +1634,8 @@ index 77ada8f..f326cec 100644
 +///
 +/// A `GET` is either a WebSocket upgrade or a plain HTTP request, and only
 +/// its headers say which, so for a `GET` this waits until the whole request
-+/// head has arrived (or [`PEEK_BYTES`] / [`PEEK_TIMEOUT`] is reached).
++/// head has arrived (or [`PEEK_BYTES`] / [`PEEK_TIMEOUT`] is reached). Any
++/// other request is routed by its target, so this waits for its first line.
 +/// `None` when the peer sent fewer than three bytes.
 +async fn peek_request_head(tcp: &tokio::net::TcpStream) -> Option<Vec<u8>> {
 +    let mut buf = vec![0u8; PEEK_BYTES];
@@ -1630,7 +1646,7 @@ index 77ada8f..f326cec 100644
 +            return None;
 +        }
 +        let head = buf.get(..n)?;
-+        let complete = !head.starts_with(b"GET")
++        let complete = (!head.starts_with(b"GET") && head.contains(&b'\n'))
 +            || n == PEEK_BYTES
 +            || head.windows(4).any(|w| w == b"\r\n\r\n");
 +        if complete || Instant::now() >= deadline {
@@ -1694,20 +1710,60 @@ index 77ada8f..f326cec 100644
 +        .is_some_and(|rest| matches!(rest.first(), Some(b' ' | b'?')))
 +}
 +
++/// Whether a request head's target is the littlesync gateway's:
++/// `/littlesync`, or a path or query under it.
++fn is_littlesync_path(head: &[u8]) -> bool {
++    head.splitn(3, |&b| b == b' ')
++        .nth(1)
++        .and_then(|target| target.strip_prefix(b"/littlesync"))
++        .is_some_and(|rest| matches!(rest.first(), None | Some(b'/' | b'?')))
++}
++
++/// Pass a connection through to the littlesync gateway, both ways, until
++/// either side closes. Nothing is read from it here: the peeked request goes
++/// on as it came, and so does every request after it on that connection.
++async fn proxy_to_littlesync(
++    mut tcp: tokio::net::TcpStream,
++    addr: SocketAddr,
++    gateway: SocketAddr,
++) {
++    use tokio::io::AsyncWriteExt;
++
++    let mut upstream = match tokio::net::TcpStream::connect(gateway).await {
++        Ok(upstream) => upstream,
++        Err(e) => {
++            tracing::warn!(addr = %addr, error = %e, "littlesync gateway unreachable");
++            tcp.write_all(
++                b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
++            )
++            .await
++            .ok();
++            return;
++        }
++    };
++    // Its messages are small and answer one another: no Nagle delay.
++    tcp.set_nodelay(true).ok();
++    upstream.set_nodelay(true).ok();
++    if let Err(e) = tokio::io::copy_bidirectional(&mut tcp, &mut upstream).await {
++        tracing::debug!(addr = %addr, error = %e, "littlesync connection ended");
++    }
++}
++
  /// Accept loop: routes incoming TCP connections to WebSocket or HTTP long-poll.
  #[allow(clippy::too_many_arguments)]
  async fn accept_loop<H: CliWireHandler>(
-@@ -1053,6 +1281,9 @@ async fn accept_loop<H: CliWireHandler>(
+@@ -1053,6 +1329,10 @@ async fn accept_loop<H: CliWireHandler>(
      ephemeral: CliEphemeralHandler,
      lp_handler: LongPollHandler<MemorySigner, FuturesTimerTimeout>,
      keyhive_proto: Option<CliKeyhiveProtocol>,
 +    contact_card_json: Option<Arc<str>>,
 +    static_dir: Option<Arc<std::path::Path>>,
 +    iroh_relay: Option<IrohRelay>,
++    littlesync_gateway: Option<SocketAddr>,
      cancel: CancellationToken,
      handshake_max_drift: Duration,
      max_message_size: usize,
-@@ -1080,20 +1311,37 @@ async fn accept_loop<H: CliWireHandler>(
+@@ -1080,20 +1360,45 @@ async fn accept_loop<H: CliWireHandler>(
                          let task_ephemeral = ephemeral.clone();
                          let task_handler = lp_handler.clone();
                          let task_keyhive = keyhive_proto.clone();
@@ -1735,6 +1791,14 @@ index 77ada8f..f326cec 100644
 +                                return;
 +                            };
 +
++                            if let Some(gateway) = littlesync_gateway
++                                && is_littlesync_path(&peek_buf)
++                            {
++                                tracing::info!(addr = %addr, "littlesync connection");
++                                proxy_to_littlesync(tcp, addr, gateway).await;
++                                return;
++                            }
++
 +                            let is_get = peek_buf.starts_with(b"GET");
 +                            if is_get && !is_websocket_upgrade(&peek_buf) {
 +                                let relay_probes = task_relay.is_some();
@@ -1753,7 +1817,7 @@ index 77ada8f..f326cec 100644
                              }
  
                              let is_http = peek_buf.starts_with(b"POST")
-@@ -1131,7 +1379,7 @@ async fn accept_loop<H: CliWireHandler>(
+@@ -1131,7 +1436,7 @@ async fn accept_loop<H: CliWireHandler>(
                              } else {
                                  tracing::warn!(
                                      addr = %addr,
@@ -1762,7 +1826,7 @@ index 77ada8f..f326cec 100644
                                      "unknown protocol"
                                  );
                              }
-@@ -1399,6 +1647,160 @@ async fn handle_http_longpoll<H: CliWireHandler>(
+@@ -1399,6 +1704,160 @@ async fn handle_http_longpoll<H: CliWireHandler>(
      }
  }
  
@@ -1923,7 +1987,7 @@ index 77ada8f..f326cec 100644
  /// Wrap a connection in a keyhive adapter and register the peer.
  ///
  /// No-op when keyhive is disabled (`protocol` is `None`).
-@@ -1427,6 +1829,7 @@ async fn try_connect_ws<H: CliWireHandler>(
+@@ -1427,6 +1886,7 @@ async fn try_connect_ws<H: CliWireHandler>(
      max_message_size: usize,
      max_frame_size: usize,
      keepalive: KeepAlive,
@@ -1931,7 +1995,7 @@ index 77ada8f..f326cec 100644
  ) -> Result<PeerId, eyre::Error> {
      let uri_str = uri.to_string();
      tracing::info!(uri = %uri_str, service_name = %service_name, "Connecting to peer via discovery");
-@@ -1514,15 +1917,160 @@ async fn try_connect_ws<H: CliWireHandler>(
+@@ -1514,15 +1974,160 @@ async fn try_connect_ws<H: CliWireHandler>(
      let remote_id = authenticated.peer_id();
      tracing::info!(peer = %remote_id, "Handshake complete: connected to peer");
  

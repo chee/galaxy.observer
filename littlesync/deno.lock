@@ -1,0 +1,15 @@
+{
+  "version": "5",
+  "specifiers": {
+    "npm:@automerge/subduction@0.23.0": "0.23.0",
+    "npm:@noble/hashes@1.8.0": "1.8.0"
+  },
+  "npm": {
+    "@automerge/subduction@0.23.0": {
+      "integrity": "sha512-daTtDStLmrUbt1R9yqzBr4B+Hn5PcKUzqQ3eScR0cwMQ2dZS9OxLZ5TyRYHU+685nEKlXEzRgxOZxQPUg+GsTA=="
+    },
+    "@noble/hashes@1.8.0": {
+      "integrity": "sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A=="
+    }
+  }
+}

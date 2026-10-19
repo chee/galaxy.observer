@@ -1,0 +1,13 @@
+{
+	"imports": {
+		"@ermine/blake3": "./core/blake3/typescript/blake3.ts",
+		"@ermine/encoding/cbor": "./ermine/encoding/typescript/cbor.ts",
+		"@ermine/encoding/commit": "./ermine/encoding/typescript/commit.ts",
+		"@ermine/encoding/pack": "./ermine/encoding/typescript/pack.ts",
+		"@ermine/node/entry": "./core/node/typescript/entry.ts",
+		"@ermine/op/apply": "./core/op/typescript/apply.ts",
+		"@ermine/subduction/fragment": "./extensions/subduction/typescript/fragment.ts",
+		"@ermine/util/stacktrace": "./core/util/typescript/stacktrace.ts",
+		"@ermine/util/walk-string": "./core/util/typescript/walk-string.ts"
+	}
+}
