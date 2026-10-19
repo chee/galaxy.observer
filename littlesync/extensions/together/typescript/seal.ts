@@ -7,6 +7,8 @@
 // be in what is signed). the signature is self-describing: a varsig header, then the raw signature.
 // the commit's signer is a multikey (commit.ts). Ed25519 through WebCrypto, which every browser, Deno and Node have: a key made here
 // never leaves as bytes; others by a verifier a caller adds
+// a message (a channel's bytes on a topic, littlesync's say) is sealed too, so its sender is the key
+// that signed it, not the connection it came on: sealMessage, openMessage below
 import { blake3 } from "npm:@noble/hashes@1.8.0/blake3"
 import * as cbor from "@ermine/encoding/cbor"
 import { type Commit, decode, joinKey, name as nameOf, splitKey } from "@ermine/encoding/commit"
@@ -113,6 +115,72 @@ export async function createSigner(seed?: Uint8Array): Promise<Signer> {
 		header: ED25519_HEADER,
 		sign: async (m) => new Uint8Array(await crypto.subtle.sign("Ed25519", privateKey, m.slice())),
 	}
+}
+
+// a sealed message: {bytes, signer, signature}, the signer's multikey in it (a message has no
+// commit to carry it). signed: "ermine/v0/message", the BLAKE3 of the bytes, the signature's varsig
+// header, then the topic's UTF-8 (the rest), so a seal is good on its own topic only. a topic is 1 to
+// TOPIC bytes. nothing stops a sealed message being sent again (a row heard again): its signer did
+// say it, once
+export const TOPIC = 256
+const SAID = new TextEncoder().encode("ermine/v0/message")
+const said = (topic: string, header: Uint8Array, bytes: Uint8Array) => {
+	const t = new TextEncoder().encode(topic)
+	if (t.length === 0 || t.length > TOPIC) throw new SealError("shape")
+	const m = new Uint8Array(SAID.length + 32 + header.length + t.length)
+	m.set(SAID)
+	m.set(blake3(bytes), SAID.length)
+	m.set(header, SAID.length + 32)
+	m.set(t, SAID.length + 32 + header.length)
+	return m
+}
+
+// the message's bytes on the topic, sealed by the signer
+export async function sealMessage(
+	topic: string,
+	bytes: Uint8Array,
+	signer: Signer,
+): Promise<Uint8Array> {
+	const raw = await signer.sign(said(topic, signer.header, bytes))
+	if (!(raw instanceof Uint8Array) || raw.length === 0) throw new SealError("shape")
+	const signature = new Uint8Array(signer.header.length + raw.length)
+	signature.set(signer.header)
+	signature.set(raw, signer.header.length)
+	return cbor.encode({ bytes, signer: signer.key, signature })
+}
+
+// the message, checked for the topic: its shape, and its signer's signature, by the verifier whose
+// header it begins with (the built in, then more), as unseal checks a commit's
+export async function openMessage(
+	sealed: Uint8Array,
+	topic: string,
+	more: readonly Verifier[] = [],
+): Promise<{ signer: Uint8Array; bytes: Uint8Array }> {
+	let x: unknown
+	try {
+		x = cbor.decode(sealed)
+	} catch {
+		throw new SealError("shape")
+	}
+	if (x === null || typeof x !== "object" || Array.isArray(x)) throw new SealError("shape")
+	const { bytes, signer, signature, ...rest } = x as Record<string, unknown>
+	if (
+		Object.keys(rest).length || !(bytes instanceof Uint8Array) ||
+		!(signer instanceof Uint8Array) || !(signature instanceof Uint8Array)
+	) throw new SealError("shape")
+	const key = splitKey(signer)
+	if (key === undefined) throw new SealError("shape")
+	const v = [...verifiers, ...more].find((v) => startsWith(signature, v.header))
+	if (v === undefined) throw new SealError("signature", "no verifier for this signature header")
+	if (key.code !== v.code) {
+		throw new SealError("signature", "the header and the signer's key differ")
+	}
+	if (signature.length !== v.header.length + v.size) throw new SealError("shape")
+	const m = said(topic, v.header, bytes)
+	if (!(await v.verify(signature.subarray(v.header.length), key.key, m))) {
+		throw new SealError("signature")
+	}
+	return { signer, bytes }
 }
 
 // the keys imported, and the signatures found good, the oldest let go of past CACHED: a seal is

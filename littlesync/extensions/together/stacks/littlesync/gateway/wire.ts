@@ -15,6 +15,8 @@ export const BEAT_MS = 1000
 // a message's topic at most, in bytes (UTF-8, LS_TOPIC_MAX); its bytes at most by default (LS_MESSAGE)
 export const TOPIC_MAX = 256
 export const MESSAGE = 4096
+// the most a seal adds to a message's bytes (LS_SEALED): {bytes, signer, signature} around them
+export const SEALED = 160
 
 export type Message =
 	| { t: "hello"; key: Uint8Array; stack: string; re?: boolean }
@@ -25,9 +27,9 @@ export type Message =
 	| { t: "ack"; node: Uint8Array; names: Uint8Array[] }
 	// the topics the sender wants sent to it (all: every one), the whole list each time
 	| { t: "listen"; topics: string[]; all?: boolean }
-	// a short-lived message: bytes on a topic (presence.ts's channel's: a presence row on a room's), and
-	// who said them (a key, as the C side takes it: 1 to 34 bytes)
-	| { t: "say"; topic: string; who: Uint8Array; bytes: Uint8Array }
+	// a short-lived message: bytes on a topic (presence.ts's channel's: a presence row on a room's),
+	// sealed by who said them (seal.ts's sealMessage: the signer is in the bytes)
+	| { t: "say"; topic: string; bytes: Uint8Array }
 
 export function encode(m: Message): Uint8Array {
 	const o: Record<string, cbor.Value> = {}
@@ -66,11 +68,8 @@ export function decode(bytes: Uint8Array): Message | undefined {
 			return { t: "listen", topics, ...o.all === true && { all: true } }
 		}
 		case "say":
-			if (!isTopic(o.topic) || !isBytes(o.who) || o.who.length === 0 || o.who.length > KEY) {
-				return
-			}
-			if (!isBytes(o.bytes)) return
-			return { t: "say", topic: o.topic, who: o.who, bytes: o.bytes }
+			if (!isTopic(o.topic) || !isBytes(o.bytes)) return
+			return { t: "say", topic: o.topic, bytes: o.bytes }
 	}
 	if (typeof o.t !== "string" || !isBytes(o.node, 32)) return
 	const node = o.node
