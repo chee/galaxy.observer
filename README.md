@@ -30,9 +30,9 @@ The patch gives the server:
 - `--ws-pull-peer <URL>`: pull from another server without pushing to it.
   Before answering a client's request for a document, the server syncs it
   with the peer (at most 5 seconds; skipped once it is subscribed there), so
-  a document only the peer holds is in the first answer. On every
-  (re)connect it also syncs each document it holds with the peer and
-  subscribes. The peer is refused every fetch and gets no document data or
+  a document only the peer holds is in the first answer. Nothing is synced
+  in a sweep: on a reconnect only the documents clients have asked for are
+  synced again, 8 at a time. The peer is refused every fetch and gets no document data or
   presence; keyhive ops flow both ways. It is greeted with the URL's host,
   less any trailing dot, as its service name.
 - `--serve-iroh-relay`: be an iroh relay on the sync port. WebSocket

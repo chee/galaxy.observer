@@ -1219,13 +1219,15 @@ index a17751f..0be90da 100644
              return async { ids }.boxed();
          };
 diff --git a/subduction_cli/src/server.rs b/subduction_cli/src/server.rs
-index 77ada8f..0d0bf97 100644
+index 77ada8f..44a3e61 100644
 --- a/subduction_cli/src/server.rs
 +++ b/subduction_cli/src/server.rs
-@@ -14,6 +14,7 @@ use eyre::Result;
+@@ -13,7 +13,8 @@ use std::{
+ use eyre::Result;
  use future_form::Sendable;
  use iroh::{EndpointAddr, endpoint::presets};
- use sedimentree_core::depth::CountLeadingZeroBytes;
+-use sedimentree_core::depth::CountLeadingZeroBytes;
++use sedimentree_core::{depth::CountLeadingZeroBytes, id::SedimentreeId};
 +use subduction_core::policy::storage::StoragePolicy;
  use subduction_core::{
      authenticated::Authenticated,
@@ -1284,14 +1286,15 @@ index 77ada8f..0d0bf97 100644
      #[command(flatten)]
      pub(crate) key: key::KeyArgs,
  
-@@ -195,6 +213,15 @@ pub(crate) struct ServerArgs {
+@@ -195,6 +213,16 @@ pub(crate) struct ServerArgs {
      #[arg(long = "ws-peer", value_name = "URL")]
      pub(crate) ws_peers: Vec<String>,
  
 +    /// WebSocket peer URLs to pull from but never push to. Like any peer we
-+    /// dial, a client's subscription to a document is passed on to it. On
-+    /// every (re)connect the server also syncs each document it holds with
-+    /// the peer and subscribes to it. The peer is refused every fetch and
++    /// dial, a client's subscription to a document is passed on to it. A
++    /// document is pulled when a client first asks for it, never in a sweep
++    /// of everything held; on a reconnect the documents asked for so far are
++    /// pulled again, a few at a time. The peer is refused every fetch and
 +    /// gets no pushes or presence; keyhive ops flow both ways. It is greeted
 +    /// with its URL's host as the service name.
 +    #[arg(long = "ws-pull-peer", value_name = "URL")]
@@ -1300,7 +1303,7 @@ index 77ada8f..0d0bf97 100644
      /// Enable the Iroh (QUIC) transport for NAT-traversing P2P connections
      #[arg(long, default_value_t = false)]
      pub(crate) iroh: bool,
-@@ -217,6 +244,20 @@ pub(crate) struct ServerArgs {
+@@ -217,6 +245,20 @@ pub(crate) struct ServerArgs {
      #[arg(long = "iroh-relay-url", value_name = "URL")]
      pub(crate) iroh_relay_url: Option<String>,
  
@@ -1321,7 +1324,7 @@ index 77ada8f..0d0bf97 100644
      /// Write a JSON file on startup with the assigned port, peer ID, and iroh node ID.
      /// Useful for integration tests that need to discover the server's address.
      #[arg(long = "ready-file", value_name = "PATH")]
-@@ -276,6 +317,13 @@ impl ServerArgs {
+@@ -276,6 +318,13 @@ impl ServerArgs {
      }
  }
  
@@ -1335,7 +1338,7 @@ index 77ada8f..0d0bf97 100644
  /// Default interval for refreshing storage metrics (1 minute).
  const DEFAULT_METRICS_REFRESH_SECS: u64 = 60;
  
-@@ -299,19 +347,27 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
+@@ -299,19 +348,27 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
  
      // Initialize the full keyhive stack: storage, identity, protocol, ingest.
      let keyhive_signer = key::keyhive_signer_from_seed(&common.seed);
@@ -1367,7 +1370,7 @@ index 77ada8f..0d0bf97 100644
          kh_peer_id,
          contact_card,
      ));
-@@ -351,9 +407,10 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
+@@ -351,9 +408,10 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
          common,
          storage_policy,
          Some(keyhive_protocol),
@@ -1380,7 +1383,7 @@ index 77ada8f..0d0bf97 100644
          },
      )
      .await
-@@ -374,7 +431,10 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
+@@ -374,7 +432,10 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
          common,
          storage_policy,
          None,
@@ -1392,7 +1395,7 @@ index 77ada8f..0d0bf97 100644
      )
      .await
  }
-@@ -385,7 +445,9 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
+@@ -385,7 +446,9 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
  struct SetupCommon {
      addr: SocketAddr,
      data_dir: PathBuf,
@@ -1403,7 +1406,7 @@ index 77ada8f..0d0bf97 100644
      seed: [u8; 32],
      signer: MemorySigner,
      peer_id: PeerId,
-@@ -414,18 +476,13 @@ impl SetupCommon {
+@@ -414,18 +477,13 @@ impl SetupCommon {
              );
          }
  
@@ -1428,7 +1431,7 @@ index 77ada8f..0d0bf97 100644
  
          // Background metrics refresh
          if args.metrics {
-@@ -510,6 +567,7 @@ impl SetupCommon {
+@@ -510,6 +568,7 @@ impl SetupCommon {
              addr,
              data_dir,
              storage,
@@ -1436,7 +1439,7 @@ index 77ada8f..0d0bf97 100644
              seed,
              signer,
              peer_id,
-@@ -521,6 +579,36 @@ impl SetupCommon {
+@@ -521,6 +580,36 @@ impl SetupCommon {
      }
  }
  
@@ -1473,7 +1476,7 @@ index 77ada8f..0d0bf97 100644
  /// Build the Subduction instance and run the transport accept loops.
  ///
  /// Generic over the composed handler `H`. `keyhive_protocol` is `None` in open
-@@ -533,15 +621,17 @@ async fn serve<H, F>(
+@@ -533,15 +622,17 @@ async fn serve<H, F>(
      common: SetupCommon,
      storage_policy: Arc<CliKeyhivePolicyHandle>,
      keyhive_protocol: Option<CliKeyhiveProtocol>,
@@ -1492,7 +1495,7 @@ index 77ada8f..0d0bf97 100644
          signer,
          peer_id,
          handshake_max_drift,
-@@ -553,7 +643,7 @@ where
+@@ -553,7 +644,7 @@ where
  
      let builder = SubductionBuilder::new()
          .signer(signer.clone())
@@ -1501,7 +1504,7 @@ index 77ada8f..0d0bf97 100644
          .spawner(TokioSpawn)
          .timer(FuturesTimerTimeout)
          // Seeded so sequences resume above previous values across restarts;
-@@ -578,6 +668,7 @@ where
+@@ -578,6 +669,7 @@ where
      };
  
      let mut requestor_tally = None;
@@ -1509,7 +1512,7 @@ index 77ada8f..0d0bf97 100644
      let (subduction, listener_fut, manager_fut, ephemeral): (CliSubduction<H>, _, _, _) = builder
          .build_composed(|sync_handler| {
              requestor_tally = Some(sync_handler.requestor_tally());
-@@ -604,13 +695,20 @@ where
+@@ -604,13 +696,22 @@ where
                  }
              });
  
@@ -1521,17 +1524,19 @@ index 77ada8f..0d0bf97 100644
  
      let server_peer_id = subduction.peer_id();
  
++    let asked: Asked = Arc::default();
 +    if !args.ws_pull_peers.is_empty() {
 +        pull_first.set(pull_before_answering(
 +            Arc::downgrade(&subduction),
 +            Arc::clone(&storage_policy),
++            Arc::clone(&asked),
 +        ));
 +    }
 +
      // Periodically publish the in-memory cache occupancy and the top-requestor
      // window. Lives here (not in the storage refresh task) because both come
      // from `Subduction`/handler state, not the storage backend. The resident
-@@ -768,6 +866,13 @@ where
+@@ -768,6 +869,13 @@ where
      let ws_keepalive = KeepAlive::balanced();
  
      let accept_keyhive = keyhive_protocol.clone();
@@ -1545,7 +1550,7 @@ index 77ada8f..0d0bf97 100644
      let accept_task = tokio::spawn(async move {
          accept_loop(
              tcp_listener,
-@@ -775,6 +880,10 @@ where
+@@ -775,6 +883,10 @@ where
              accept_ephemeral,
              accept_handler,
              accept_keyhive,
@@ -1556,7 +1561,7 @@ index 77ada8f..0d0bf97 100644
              accept_cancel,
              handshake_max_drift,
              max_message_size,
-@@ -802,7 +911,10 @@ where
+@@ -802,7 +914,10 @@ where
              iroh::endpoint::RelayMode::Default
          };
  
@@ -1567,7 +1572,18 @@ index 77ada8f..0d0bf97 100644
              .alpns(vec![subduction_iroh::ALPN.to_vec()])
              .relay_mode(relay_mode)
              .bind()
-@@ -958,6 +1070,7 @@ where
+@@ -854,7 +969,9 @@ where
+                                         Ok(_) => {
+                                             iroh_ephemeral.subscribe_peer(remote).await;
+                                             notify_peer_connect(iroh_keyhive_proto.as_ref(), auth_for_keyhive).await;
+-                                            iroh_subduction.full_sync_with_peer(&remote, true, CallTimeout::Default).await;
++                                            // No sync of everything held: the peer asks
++                                            // for the documents it wants, as a WebSocket
++                                            // client does.
+                                             tracing::info!(peer = %remote, "iroh: added peer");
+                                         }
+                                         Err(e) => {
+@@ -958,6 +1075,7 @@ where
                  peer_max_message_size,
                  peer_max_frame_size,
                  peer_keepalive,
@@ -1575,7 +1591,7 @@ index 77ada8f..0d0bf97 100644
              )
              .await
              {
-@@ -971,6 +1084,44 @@ where
+@@ -971,6 +1089,45 @@ where
          });
      }
  
@@ -1611,6 +1627,7 @@ index 77ada8f..0d0bf97 100644
 +            keyhive_protocol.clone(),
 +            signer.clone(),
 +            Arc::clone(&storage_policy),
++            Arc::clone(&asked),
 +            token.clone(),
 +            args.max_message_size,
 +            args.max_frame_size(),
@@ -1620,7 +1637,7 @@ index 77ada8f..0d0bf97 100644
      // Write ready file if requested (for integration tests)
      if let Some(ref ready_path) = args.ready_file {
          let iroh_line = iroh_node_id
-@@ -1045,6 +1196,131 @@ fn publish_disk_usage(data_dir: &std::path::Path) {
+@@ -1045,6 +1202,131 @@ fn publish_disk_usage(data_dir: &std::path::Path) {
      subduction_core::metrics::set_redb_file_bytes(redb_bytes);
  }
  
@@ -1752,7 +1769,7 @@ index 77ada8f..0d0bf97 100644
  /// Accept loop: routes incoming TCP connections to WebSocket or HTTP long-poll.
  #[allow(clippy::too_many_arguments)]
  async fn accept_loop<H: CliWireHandler>(
-@@ -1053,6 +1329,10 @@ async fn accept_loop<H: CliWireHandler>(
+@@ -1053,6 +1335,10 @@ async fn accept_loop<H: CliWireHandler>(
      ephemeral: CliEphemeralHandler,
      lp_handler: LongPollHandler<MemorySigner, FuturesTimerTimeout>,
      keyhive_proto: Option<CliKeyhiveProtocol>,
@@ -1763,7 +1780,7 @@ index 77ada8f..0d0bf97 100644
      cancel: CancellationToken,
      handshake_max_drift: Duration,
      max_message_size: usize,
-@@ -1080,20 +1360,45 @@ async fn accept_loop<H: CliWireHandler>(
+@@ -1080,20 +1366,45 @@ async fn accept_loop<H: CliWireHandler>(
                          let task_ephemeral = ephemeral.clone();
                          let task_handler = lp_handler.clone();
                          let task_keyhive = keyhive_proto.clone();
@@ -1817,7 +1834,7 @@ index 77ada8f..0d0bf97 100644
                              }
  
                              let is_http = peek_buf.starts_with(b"POST")
-@@ -1131,7 +1436,7 @@ async fn accept_loop<H: CliWireHandler>(
+@@ -1131,7 +1442,7 @@ async fn accept_loop<H: CliWireHandler>(
                              } else {
                                  tracing::warn!(
                                      addr = %addr,
@@ -1826,7 +1843,7 @@ index 77ada8f..0d0bf97 100644
                                      "unknown protocol"
                                  );
                              }
-@@ -1399,6 +1704,160 @@ async fn handle_http_longpoll<H: CliWireHandler>(
+@@ -1399,6 +1710,160 @@ async fn handle_http_longpoll<H: CliWireHandler>(
      }
  }
  
@@ -1987,7 +2004,7 @@ index 77ada8f..0d0bf97 100644
  /// Wrap a connection in a keyhive adapter and register the peer.
  ///
  /// No-op when keyhive is disabled (`protocol` is `None`).
-@@ -1427,6 +1886,7 @@ async fn try_connect_ws<H: CliWireHandler>(
+@@ -1427,6 +1892,7 @@ async fn try_connect_ws<H: CliWireHandler>(
      max_message_size: usize,
      max_frame_size: usize,
      keepalive: KeepAlive,
@@ -1995,7 +2012,7 @@ index 77ada8f..0d0bf97 100644
  ) -> Result<PeerId, eyre::Error> {
      let uri_str = uri.to_string();
      tracing::info!(uri = %uri_str, service_name = %service_name, "Connecting to peer via discovery");
-@@ -1514,15 +1974,160 @@ async fn try_connect_ws<H: CliWireHandler>(
+@@ -1514,15 +1980,201 @@ async fn try_connect_ws<H: CliWireHandler>(
      let remote_id = authenticated.peer_id();
      tracing::info!(peer = %remote_id, "Handshake complete: connected to peer");
  
@@ -2019,18 +2036,28 @@ index 77ada8f..0d0bf97 100644
 +/// How long a client's request for a document waits on the pull peers.
 +const PULL_FIRST_TIMEOUT_MS: u64 = 5_000;
 +
++/// How many documents a reconnect pulls again at once.
++const REPULL_AT_ONCE: usize = 8;
++
++/// The documents clients have asked for, which a pull peer reconnect pulls
++/// again: subscriptions passed on to it do not survive the reconnect.
++type Asked = Arc<std::sync::Mutex<std::collections::BTreeSet<SedimentreeId>>>;
++
 +/// The [`PullFirst`] hook for `--ws-pull-peer`: before answering a request
 +/// for a document, sync it with each connected pull peer, so a document only
 +/// they hold is in the first answer rather than pushed after it. Skipped for
 +/// a document we already subscribe to through that peer, which live pushes
-+/// keep current, and for a requester that may not fetch it anyway.
++/// keep current, and for a requester that may not fetch it anyway. Each
++/// document asked for is noted in `asked`.
 +fn pull_before_answering<H: CliWireHandler>(
 +    subduction: std::sync::Weak<<CliSubduction<H> as std::ops::Deref>::Target>,
 +    policy: Arc<CliKeyhivePolicyHandle>,
++    asked: Asked,
 +) -> Box<PullFirstFn> {
 +    Box::new(move |from, id| {
 +        let subduction = subduction.clone();
 +        let policy = Arc::clone(&policy);
++        let asked = Arc::clone(&asked);
 +        Box::pin(async move {
 +            let Some(subduction) = subduction.upgrade() else {
 +                return;
@@ -2038,6 +2065,7 @@ index 77ada8f..0d0bf97 100644
 +            if policy.is_pull_only(&from) || policy.authorize_fetch(from, id).await.is_err() {
 +                return;
 +            }
++            asked.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(id);
 +            for peer in subduction.connected_peer_ids().await {
 +                if !policy.is_pull_only(&peer)
 +                    || subduction.get_peer_subscriptions(peer).await.contains(&id)
@@ -2076,10 +2104,12 @@ index 77ada8f..0d0bf97 100644
 +}
 +
 +/// Keep a connection to a `--ws-pull-peer` for as long as the server runs.
-+/// Each time it connects, sync every document we hold with it (subscribing,
-+/// so later changes are pushed to us), since subscriptions passed on for
-+/// clients do not survive a reconnect; when it drops, connect again, backing
-+/// off up to five minutes between failures.
++/// Each time it connects, sync the documents clients have asked for with it
++/// (subscribing, so later changes are pushed to us), since subscriptions
++/// passed on for clients do not survive a reconnect; when it drops, connect
++/// again, backing off up to five minutes between failures. Documents nobody
++/// has asked for are left alone: [`pull_before_answering`] pulls each one
++/// when it is first asked for.
 +#[allow(clippy::too_many_arguments)]
 +async fn pull_from_ws_peer<H: CliWireHandler>(
 +    uri: Uri,
@@ -2089,10 +2119,12 @@ index 77ada8f..0d0bf97 100644
 +    keyhive: Option<CliKeyhiveProtocol>,
 +    signer: MemorySigner,
 +    policy: Arc<CliKeyhivePolicyHandle>,
++    asked: Asked,
 +    cancel: CancellationToken,
 +    max_message_size: usize,
 +    max_frame_size: usize,
 +) {
++    use futures::StreamExt as _;
 +    const MAX_BACKOFF: Duration = Duration::from_secs(300);
 +    let mut backoff = Duration::from_secs(1);
 +    while !cancel.is_cancelled() {
@@ -2114,20 +2146,46 @@ index 77ada8f..0d0bf97 100644
 +            Ok(remote_id) => {
 +                backoff = Duration::from_secs(1);
 +                let started = Instant::now();
-+                let (_, stats, conn_errs, doc_errs) = subduction
-+                    .full_sync_with_peer(&remote_id, true, CallTimeout::Default)
++                let ids: Vec<SedimentreeId> = asked
++                    .lock()
++                    .unwrap_or_else(std::sync::PoisonError::into_inner)
++                    .iter()
++                    .copied()
++                    .collect();
++                let documents = ids.len();
++                let failed = std::sync::atomic::AtomicUsize::new(0);
++                let received = std::sync::atomic::AtomicUsize::new(0);
++                let (node, peer) = (&subduction, &remote_id);
++                let (failed_ref, received_ref) = (&failed, &received);
++                futures::stream::iter(ids)
++                    .for_each_concurrent(REPULL_AT_ONCE, move |id| async move {
++                        match node
++                            .sync_with_peer(peer, id, true, CallTimeout::Default)
++                            .await
++                        {
++                            Ok((_, stats, _)) => {
++                                received_ref.fetch_add(stats.commits_received, Ordering::Relaxed);
++                            }
++                            Err(e) => {
++                                failed_ref.fetch_add(1, Ordering::Relaxed);
++                                tracing::warn!(
++                                    peer = %peer,
++                                    tree = ?id,
++                                    error = %e,
++                                    "Pull again failed"
++                                );
++                            }
++                        }
++                    })
 +                    .await;
 +                tracing::info!(
 +                    uri = %uri,
 +                    peer = %remote_id,
-+                    commits_received = stats.commits_received,
-+                    fragments_received = stats.fragments_received,
-+                    commits_sent = stats.commits_sent,
-+                    fragments_sent = stats.fragments_sent,
-+                    connection_errors = conn_errs.len(),
-+                    document_errors = doc_errs.len(),
++                    documents,
++                    commits_received = received.into_inner(),
++                    document_errors = failed.into_inner(),
 +                    elapsed_ms = started.elapsed().as_millis(),
-+                    "Pulled from peer"
++                    "Pulled asked-for documents from peer"
 +                );
 +                // Stay idle while the connection lasts.
 +                let mut tick = time::interval(Duration::from_secs(10));
@@ -2157,6 +2215,18 @@ index 77ada8f..0d0bf97 100644
  /// Connect to a peer via Iroh (QUIC) transport (outbound).
  #[allow(clippy::too_many_arguments)]
  async fn try_connect_iroh<H: CliWireHandler>(
+@@ -1581,9 +2233,8 @@ async fn try_connect_iroh<H: CliWireHandler>(
+     subduction.add_connection(auth).await?;
+     ephemeral.subscribe_peer(remote_id).await;
+     notify_peer_connect(keyhive_proto, auth_for_keyhive).await;
+-    subduction
+-        .full_sync_with_peer(&remote_id, true, CallTimeout::Default)
+-        .await;
++    // No sync of everything held: documents are synced as clients ask for
++    // them, and their subscriptions are passed on to this peer.
+ 
+     tracing::info!(node_id = %node_id, peer = %remote_id, "iroh: added peer");
+     Ok(remote_id)
 diff --git a/subduction_cli/src/storage.rs b/subduction_cli/src/storage.rs
 new file mode 100644
 index 0000000..3c03952
@@ -2852,16 +2922,17 @@ index 0000000..673ede8
 +}
 diff --git a/subduction_cli/tests/pull_peer.rs b/subduction_cli/tests/pull_peer.rs
 new file mode 100644
-index 0000000..8cd01be
+index 0000000..994e25e
 --- /dev/null
 +++ b/subduction_cli/tests/pull_peer.rs
-@@ -0,0 +1,258 @@
+@@ -0,0 +1,259 @@
 +//! End-to-end test of `--ws-pull-peer`: a server takes a peer's data and
 +//! gives none back.
 +//!
 +//! Server `down` pulls from server `up`. Each holds one commit of the same
-+//! document before they meet (a server only syncs documents it knows). After
-+//! they connect `down` has both commits and `up` still has only its own; a
++//! document before they meet. Once a client asks `down` for it, `down` has
++//! both commits and `up` still has only its own (a document is pulled when
++//! it is asked for, not in a sweep at connect); a
 +//! commit written to `up` afterwards reaches `down`, and one written to
 +//! `down` never reaches `up`. A client subscribing at `down` to a document
 +//! only `up` holds gets it, since `down` passes the subscription on.
