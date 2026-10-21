@@ -5,7 +5,7 @@
 // the tables at its head; ephemeral ones, never sealed, as its ephemeral messages; and what a
 // device checks of what arrives before the mailroom's histories see it, and before Subduction stores
 // it (only what is taken in is). what a device holds for others is bounded (Limits). adapted from
-// extensions/subduction/typescript/transport.ts, which carries blops
+// the old stack's transport.ts (now in ermine-graveyard/extensions/subduction), which carries blops
 import type * as sd from "npm:@automerge/subduction@0.23.0"
 import {
 	type Check,
@@ -14,24 +14,34 @@ import {
 	LIMITS as KEEPING,
 	type Limits as Keeping,
 } from "./mailroom.ts"
-import { createSubduction, JOINING, type Joining, type Lock, type Wired } from "../stacks/subduction/typescript/subduction.ts"
+import {
+	createSubduction,
+	JOINING,
+	type Joining,
+	type Wired,
+} from "../stacks/subduction/typescript/subduction.ts"
+import type { Lock } from "./lock.ts"
 import type { Kept } from "./history.ts"
 import type { Merges } from "./replay.ts"
 import type { Signer, Verifier } from "./seal.ts"
 import { keep as hooks } from "./transport_conformance_hook.ts"
 
 export type { Arrival, Check, Code, Layer, Taking } from "./mailroom.ts"
-export { LIMIT, type Lock, type Opened, PART, unlocked } from "../stacks/subduction/typescript/subduction.ts"
+export { LIMIT, PART } from "../stacks/subduction/typescript/subduction.ts"
+export { type Lock, type Opened, unlocked } from "./lock.ts"
 export type { Fragment } from "../stacks/subduction/typescript/subduction.ts"
 
-// starting: createDevice returns at once, and begins taking in everything the storage holds (every
-// fragment, then every loose commit, as a save is taken in; a commit whose parents come later waits,
-// as ever). everything that touches the network (connect, connectDiscover, follow) waits for that;
+// starting: createDevice returns at once, and begins taking in what the storage holds for each
+// document whose id is named already (every fragment, then every loose commit, as a save is taken
+// in; a commit whose parents come later waits, as ever). a tree whose id is not named yet (a tree id
+// is a hash of the id: it can't be turned back) is only listed (unnamed() counts them), and taken
+// in when its document is first followed (fragments, then loose commits, as the start would),
+// before it is fetched from any peer; a save or an arrival for a tree with no id named is refused.
+// everything that touches the network (connect, connectDiscover, follow) waits for the start;
 // take's sealing and storing, put and the other work queue behind it. ready() resolves when it is
-// done; it throws what the storage threw. lazy: only the trees the storage holds are listed at the
-// start; a document's tree is taken in when it is followed (fragments, then loose commits, as the
-// start would), before it is fetched from any peer, so the histories hold the followed documents
-// and no other; a stored document never followed enters no history
+// done; it throws what the storage threw. lazy: every tree only listed at the start, so the
+// histories hold the followed documents and no other; a stored document never followed enters no
+// history
 export type Device = Held & Wired
 
 // what a device holds for others at most, each letting go of its oldest past it (heard again, it
@@ -51,7 +61,7 @@ export function createDevice(
 		join?: number
 		// where Subduction keeps what it saves (taken in on save as ever); default: in memory
 		storage?: sd.SedimentreeStorage
-		// what the storage holds is taken in as each document is followed, not at the start
+		// what the storage holds is taken in as each document is followed, never at the start
 		lazy?: boolean
 		// default: everything applies
 		check?: Check
@@ -68,6 +78,10 @@ export function createDevice(
 	const mailroom = createMailroom({ ...options, limits })
 	const wired = createSubduction(mailroom, { ...options, limits })
 	const device: Device = { ...mailroom.device, ...wired.device }
-	hooks(device, { ...wired.inside, taking: (doc, layer) => mailroom.device.taking(doc, layer) })
+	hooks(device, {
+		...wired.inside,
+		taking: (doc, layer) => mailroom.device.taking(doc, layer),
+		file: (doc, tree) => void mailroom.file(doc, tree),
+	})
 	return device
 }

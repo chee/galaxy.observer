@@ -1,5 +1,5 @@
 #!/bin/sh
-# Copy the littlesync gateway (ermine's extensions/together/stacks/littlesync/gateway/main.ts) and
+# Copy the littlesync gateway (ermine's playground/together/stacks/littlesync/gateway/main.ts) and
 # every local file it imports from an ermine checkout into this folder, at the same paths, so the
 # image builds it with nothing from outside this repo. deno.json maps the ermine workspace names
 # (@ermine/...) it imports to the copies; deno.lock pins its npm packages, fetched at build time.
@@ -9,7 +9,7 @@ set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
 ermine=$(cd "${1:-$here/../../ermine}" && pwd)
-main=extensions/together/stacks/littlesync/gateway/main.ts
+main=playground/together/stacks/littlesync/gateway/main.ts
 
 # The local modules main.ts reaches, relative to the ermine checkout, and the import map for the
 # workspace names among their imports.
@@ -33,7 +33,7 @@ files=$(echo "$info" | deno eval --quiet '
 	Deno.writeTextFileSync(Deno.args[1], JSON.stringify({ imports: sorted }, null, "\t") + "\n")
 ' "$ermine" "$here/deno.json")
 
-for dir in core ermine extensions; do
+for dir in core ermine extensions playground; do
 	rm -rf "${here:?}/$dir"
 done
 for f in $files; do

@@ -1,1 +1,2 @@
-ermine 28113fd44dbb3eee4c92191cbb4570aa6c9f1601
+ermine dd2242dcd9dd32981b6494c39fb40d34b118dbf0
+with uncommitted changes to: ermine/encoding/typescript/pack.ts playground/together/stacks/littlesync/gateway/gateway.ts playground/together/stacks/littlesync/gateway/wire.ts playground/together/stacks/subduction/typescript/subduction.ts playground/together/typescript/lock.ts playground/together/typescript/mailroom.ts playground/together/typescript/replay.ts playground/together/typescript/seal.ts playground/together/typescript/transport.ts playground/together/typescript/transport_conformance_hook.ts ermine/ids/typescript/ids.ts 

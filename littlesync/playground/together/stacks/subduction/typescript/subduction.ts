@@ -3,11 +3,13 @@
 // the tables at its head; ephemeral ones, never sealed, as its ephemeral messages; and what a device
 // checks of what arrives before the mailroom's histories see it, and before Subduction stores it (only
 // what is taken in is). what a device holds for others is bounded (Limits). one sedimentree per
-// node: a commit names no node, it is the node's whose sedimentree it came on. adapted from
-// extensions/subduction/typescript/transport.ts, which carries blops. only the lock "unlocked" is
-// built. the mailroom (mailroom.ts) holds the histories and what is taken in; this hands it what arrives
-// (pend, settle, member, hint, hear, stopped) and is its Stack (send, stop, handed, taking)
+// node: a commit names no node, it is the node's whose sedimentree it came on. adapted from the old
+// stack's transport.ts (now in ermine-graveyard/extensions/subduction), which carries blops. the lock
+// is together's (../../../typescript/lock.ts). the mailroom (mailroom.ts) holds the histories and what
+// is taken in; this hands it what arrives (pend, settle, member, hint, hear, stopped) and is its
+// Stack (send, stop, handed, taking)
 import * as sd from "npm:@automerge/subduction@0.23.0"
+import { type Lock, unlocked } from "../../../typescript/lock.ts"
 import {
 	each as unpacking,
 	pack as packing,
@@ -18,7 +20,7 @@ import { hex, unhex } from "../../../typescript/hex.ts"
 import { blake3 } from "npm:@noble/hashes@1.8.0/blake3"
 import * as cbor from "@ermine/encoding/cbor"
 import { decode, name as nameOf, splitKey } from "@ermine/encoding/commit"
-import { build, depth, type Fragment, FragmentError, walk } from "@ermine/subduction/fragment"
+import { build, depth, type Fragment, FragmentError, walk } from "./fragment.ts"
 import type { Kept } from "../../../typescript/history.ts"
 import {
 	by,
@@ -28,6 +30,8 @@ import {
 	type Mailroom,
 	type Member,
 	note,
+	type Refusal,
+	refusal,
 	type Sealed,
 } from "../../../typescript/mailroom.ts"
 import { ED25519, ed25519Key, SealError, type Signer } from "../../../typescript/seal.ts"
@@ -36,22 +40,8 @@ import type { Taking } from "../../../typescript/transport_conformance_hook.ts"
 
 export type { Fragment }
 
-// what a lock's open gives: the bytes close was given; not yet; or never
-export type Opened = Uint8Array | { wait: true } | { refused: string }
-
-// the part of a lock the stack calls; doc: the document's 32 bytes
-export type Lock = {
-	close(
-		doc: Uint8Array,
-		name: Uint8Array,
-		parents: Uint8Array[],
-		bytes: Uint8Array,
-	): Uint8Array | Promise<Uint8Array>
-	open(doc: Uint8Array, bytes: Uint8Array): Opened | Promise<Opened>
-}
-
-// close and open give back what they are given
-export const unlocked: Lock = { close: (_d, _n, _p, bytes) => bytes, open: (_d, bytes) => bytes }
+// the lock (../../../typescript/lock.ts): the stack calls it; together owns it
+export { type Lock, type Opened, unlocked } from "../../../typescript/lock.ts"
 
 // Subduction drops an ephemeral payload over this; a closed commit over it is sent as parts of at
 // most PART bytes
@@ -81,6 +71,8 @@ export type Wired = {
 	listen(topic: string, fn: (from: string, bytes: Uint8Array) => void): () => void
 	stored(doc: string): Promise<Uint8Array[]>
 	fragments(doc: string): Fragment[]
+	// how many trees the storage holds whose id is not named yet: listed, not taken in
+	unnamed(): number
 	// the lock's or the check's changed(): what waited on the lock, or on the check, is tried again
 	changed(): Promise<void>
 	// an ephemeral payload's parts not joined yet are dropped now, as the setting would in time
@@ -101,15 +93,21 @@ type Saved = {
 	blob: Uint8Array
 }
 
+// what waits on the lock, as it arrived: a fragment's boundary (a loose commit's: none), and the
+// opening again. queued: changed has queued it (once, however often it is told before it runs)
+type Held = { boundary: string[]; again(): Promise<void>; queued?: true }
+
 // what the stack holds of a document, besides the mailroom's: its tree and topic, the fragments made or
-// taken in, those refused whole (by head), what waits on the lock (tried again by changed), and how
-// many taken-in seals have a depth, so a build with none is skipped
+// taken in, those refused whole (by head, with the text a lock refused with), what waits on the lock
+// (by head, tried again by changed: loose commits and fragments, each at most limits.pending, the
+// oldest let go of past it; stored still, it comes in again as the device starts), and how many
+// taken-in seals have a depth, so a build with none is skipped
 type Tree = {
 	tree: sd.SedimentreeId
 	topic: sd.Topic
 	fragments: Map<string, Fragment>
-	broken: Map<string, Code>
-	locked: Map<string, { commit: boolean; again(): Promise<void> }>
+	broken: Map<string, Refusal>
+	locked: { commits: Map<string, Held>; fragments: Map<string, Held> }
 	deep: number
 }
 
@@ -144,19 +142,21 @@ export function createSubduction(
 		let t = trees.get(d)
 		if (t === undefined) {
 			t = {
-				tree: sd.SedimentreeId.fromBytes(d.bytes),
-				topic: sd.Topic.fromBytes(d.bytes),
+				tree: sd.SedimentreeId.fromBytes(d.tree),
+				topic: sd.Topic.fromBytes(d.tree),
 				fragments: new Map(),
 				broken: new Map(),
-				locked: new Map(),
+				locked: { commits: new Map(), fragments: new Map() },
 				deep: 0,
 			}
 			trees.set(d, t)
 		}
 		return t
 	}
+	// the documents followed, by their tree id's hex
 	const followed = new Set<string>()
-	// lazy: the trees the storage held at the start, by hex, and those taken in since
+	// the trees the storage held at the start not taken in then (their id not named yet, or lazy),
+	// by hex, and those taken in since: each taken in when its document is followed
 	const held = new Set<string>()
 	const taken = new Set<string>()
 	const peers = new Map<string, sd.PeerId>()
@@ -178,7 +178,7 @@ export function createSubduction(
 		const open = await lock.open(d.bytes, blob)
 		if (!(open instanceof Uint8Array)) {
 			if ("wait" in open) return "wait"
-			refuse(d, h, "lock"), settle(d)
+			refuse(d, h, "lock", undefined, open.refused), settle(d)
 			return
 		}
 		let it: Sealed
@@ -197,12 +197,15 @@ export function createSubduction(
 	async function commit(d: Doc, head: Uint8Array, parents: Uint8Array[], blob: Uint8Array) {
 		const h = hex(head)
 		if (d.seen.has(h)) return
-		of(d).locked.delete(h)
+		of(d).locked.commits.delete(h)
 		const got = await opening(d, h, blob)
 		if (got === undefined) return
 		if (got === "wait") {
 			clear(d, h)
-			of(d).locked.set(h, { commit: true, again: () => commit(d, head, parents, blob) })
+			note(limits.pending, of(d).locked.commits, h, {
+				boundary: [],
+				again: () => commit(d, head, parents, blob),
+			})
 			return
 		}
 		pend(d, h, {
@@ -216,10 +219,13 @@ export function createSubduction(
 	}
 
 	// what Subduction may store of a loose commit (its admission): one that opens to a seal under
-	// its stored id, or waits on the lock. what is refused is noted, as taking it in notes it
+	// its stored id, or waits on the lock. what is refused is noted, as taking it in notes it, and
+	// told (moved) now, as a take tells
 	async function allows(d: Doc, head: Uint8Array, blob: Uint8Array): Promise<boolean> {
 		const h = hex(head)
-		return d.seen.has(h) || await opening(d, h, blob) !== undefined
+		if (d.seen.has(h) || await opening(d, h, blob) !== undefined) return true
+		moved(d)
+		return false
 	}
 
 	// a fragment's blob opened: {run: its members as a pack (packer.ts), snapshot?: packed tables}, or
@@ -357,7 +363,8 @@ export function createSubduction(
 	}
 
 	// what Subduction may store of a fragment (its admission): one that opens and is checked, or
-	// waits on the lock. one whose head is not here yet is noted refused whole
+	// waits on the lock. one whose head is not here yet is noted refused whole; a refusal is told
+	// (moved) now, as a take tells
 	async function allowsFragment(
 		d: Doc,
 		head: Uint8Array,
@@ -369,18 +376,20 @@ export function createSubduction(
 		const open = await lock.open(d.bytes, blob)
 		if (!(open instanceof Uint8Array)) {
 			if ("wait" in open) return true
-			if (!d.seen.has(h)) broke(d, h, "lock")
+			if (!d.seen.has(h)) broke(d, h, "lock", open.refused)
+			moved(d)
 			return false
 		}
 		const got = await checked(d, head, boundary, checkpoints, open)
 		if (typeof got !== "string") return true
 		if (!d.seen.has(h)) broke(d, h, got)
+		moved(d)
 		return false
 	}
 
-	// a fragment refused whole, by head
-	function broke(d: Doc, h: string, code: Code) {
-		note(limits.refused, of(d).broken, h, code)
+	// a fragment refused whole, by head, with the text a lock refused it with
+	function broke(d: Doc, h: string, code: Code, why?: string) {
+		note(limits.refused, of(d).broken, h, refusal(code, why))
 	}
 
 	// a fragment taken in: its members (each checked) as seals alone, its snapshot a hint. one whose
@@ -395,7 +404,7 @@ export function createSubduction(
 		const h = hex(head)
 		const here = d.seen.get(h)
 		if (here && of(d).fragments.has(h) && d.judged.has(here.name)) return
-		of(d).locked.delete("f" + h)
+		of(d).locked.fragments.delete(h)
 		const open = await lock.open(d.bytes, blob)
 		if (!(open instanceof Uint8Array)) {
 			if (here) {
@@ -403,11 +412,11 @@ export function createSubduction(
 					of(d).fragments.set(h, { head, members: [], boundary, checkpoints: [] })
 				}
 			} else if ("wait" in open) {
-				of(d).locked.set("f" + h, {
-					commit: false,
+				note(limits.pending, of(d).locked.fragments, h, {
+					boundary: boundary.map(hex),
 					again: () => fragment(d, head, boundary, checkpoints, blob),
 				})
-			} else broke(d, h, "lock")
+			} else broke(d, h, "lock", open.refused)
 			return
 		}
 		const got = await checked(d, head, boundary, checkpoints, open)
@@ -431,7 +440,7 @@ export function createSubduction(
 	async function hear(d: Doc, blob: Uint8Array, from: Uint8Array) {
 		const open = await lock.open(d.bytes, blob)
 		if (!(open instanceof Uint8Array)) {
-			if (!("wait" in open)) mailroom.unheard(d, nameOf(blob), "lock")
+			if (!("wait" in open)) mailroom.unheard(d, nameOf(blob), "lock", open.refused)
 			return
 		}
 		mailroom.hear(d, open, ed25519Key(from))
@@ -561,7 +570,7 @@ export function createSubduction(
 			const bytes = cbor.encode(blob as cbor.Value)
 			const names = f.boundary.map((b) => unhex(d.seen.get(hex(b))!.name))
 				.sort((a, b) => by(hex(a), hex(b)))
-			const closed = await lock.close(d.bytes, blake3(bytes), names, bytes)
+			const closed = await lock.close(d.bytes, nameOf(bytes), names, bytes)
 			await sub.addFragment(
 				of(d).tree,
 				commitId(f.head),
@@ -595,7 +604,7 @@ export function createSubduction(
 		commits: { id: sd.CommitId; parents: sd.CommitId[]; blob: Uint8Array }[],
 		fragments: Saved[],
 	) {
-		const d = document(tree.toBytes())
+		const d = document(tree.toBytes())!
 		const deep = of(d).deep
 		for (const c of commits) {
 			await commit(d, c.id.toBytes(), c.parents.map((p) => p.toBytes()), c.blob)
@@ -642,8 +651,18 @@ export function createSubduction(
 	const checkpointsOf = (f: sd.Fragment) =>
 		(f.checkpoints as unknown as { toBytes(): Uint8Array }[]).map((c) => c.toBytes())
 
-	// Subduction's storage, wrapped: it stores only what ermine admits (allows, allowsFragment),
-	// and what it stores is then taken in. one not admitted is refused (a throw), noted as refused
+	// a save for a tree whose id is not named yet: stored as it came, unchecked (its seals can't be
+	// checked without the id), the tree listed; taken in, each checked, when its document is followed.
+	// refusing it would leave Subduction never sending it again on that connection
+	async function unnamed<T>(tree: sd.SedimentreeId, put: () => Promise<T>): Promise<T> {
+		const r = await put()
+		held.add(hex(tree.toBytes()))
+		return r
+	}
+
+	// Subduction's storage, wrapped: for a tree whose id is named, it stores only what ermine admits
+	// (allows, allowsFragment), and what it stores is then taken in. one not admitted is refused (a
+	// throw), noted as refused. for a tree whose id is not named: unnamed
 	const storage = new Proxy(memory as sd.MemoryStorage, {
 		get(target, key) {
 			const f = (target as unknown as Record<string | symbol, unknown>)[key]
@@ -656,7 +675,11 @@ export function createSubduction(
 					blob: Uint8Array,
 				) => {
 					const parents = signed.payload.parents
-					if (!(await allows(document(tree.toBytes()), id.toBytes(), blob))) {
+					const d = document(tree.toBytes())
+					if (d === undefined) {
+						return await unnamed(tree, () => target.saveCommit(tree, id, signed, blob))
+					}
+					if (!(await allows(d, id.toBytes(), blob))) {
 						throw new Error("not admitted: refused by ermine")
 					}
 					await target.saveCommit(tree, id, signed, blob)
@@ -672,6 +695,9 @@ export function createSubduction(
 				) => {
 					const { boundary } = signed.payload, checkpoints = checkpointsOf(signed.payload)
 					const d = document(tree.toBytes()), b = boundary.map((x) => x.toBytes())
+					if (d === undefined) {
+						return await unnamed(tree, () => target.saveFragment(tree, head, signed, blob))
+					}
 					if (!(await allowsFragment(d, head.toBytes(), b, checkpoints, blob))) {
 						throw new Error("not admitted: refused by ermine")
 					}
@@ -694,6 +720,12 @@ export function createSubduction(
 					}[],
 				) => {
 					const d = document(tree.toBytes())
+					if (d === undefined) {
+						return await unnamed(
+							tree,
+							() => target.saveBatchAll(tree, commits as never, fragments as never),
+						)
+					}
 					const okCommits = [], okFragments = []
 					for (const c of commits) {
 						if (await allows(d, c.commitId.toBytes(), c.blob)) okCommits.push(c)
@@ -767,7 +799,7 @@ export function createSubduction(
 	// its fragments built. read from the storage itself, not through the wrapper, so nothing is saved
 	// again. ephemeral commits are never stored, so none come back
 	async function load(tree: sd.SedimentreeId) {
-		const d = document(tree.toBytes())
+		const d = document(tree.toBytes())!
 		for (const f of await memory.loadAllFragments(tree)) {
 			const signed = f.signed
 			await fragment(
@@ -790,20 +822,24 @@ export function createSubduction(
 		await building(d)
 	}
 
-	// starting: what the storage holds, taken in before any connection; lazy: only listed, each
-	// tree taken in when its document is followed
+	// starting: what the storage holds, taken in before any connection, for the trees whose id is
+	// named already; the others (a hash can't be turned back into an id), and all when lazy, only
+	// listed, each taken in when its document is followed
 	const loaded = run(async () => {
 		for (const tree of await memory.loadAllSedimentreeIds()) {
-			if (lazy) held.add(hex(tree.toBytes()))
-			else await load(tree)
+			const k = hex(tree.toBytes())
+			held.add(k)
+			if (lazy || document(tree.toBytes()) === undefined) continue
+			taken.add(k)
+			await load(tree)
 		}
 	})
 	loaded.catch(() => {})
 
-	// lazy: a followed document's tree taken in from the storage, once, before anything else of it
+	// a followed document's tree taken in from the storage, once, before anything else of it
 	async function loadFollowed(d: Doc) {
-		const k = hex(d.bytes)
-		if (!lazy || !held.has(k) || taken.has(k)) return
+		const k = hex(d.tree)
+		if (!held.has(k) || taken.has(k)) return
 		taken.add(k)
 		await run(() => load(of(d).tree))
 	}
@@ -899,7 +935,7 @@ export function createSubduction(
 		async follow(doc) {
 			await loaded
 			const d = named(doc)
-			followed.add(hex(d.bytes))
+			followed.add(hex(d.tree))
 			await loadFollowed(d)
 			await subscribe(of(d).topic)
 			await fetched(d)
@@ -930,9 +966,19 @@ export function createSubduction(
 			return (cs ?? []).map((c) => c.commitId.toBytes())
 		},
 		fragments: (doc) => [...of(named(doc)).fragments.values()],
+		unnamed: () => [...held].filter((k) => !mailroom.documents.has(k)).length,
 		async changed() {
 			for (const d of mailroom.documents.values()) {
-				for (const [, l] of [...of(d).locked]) await run(() => l.again())
+				const { commits, fragments } = of(d).locked
+				for (const held of [commits, fragments]) {
+					for (const [h, l] of [...held]) {
+						if (l.queued) continue
+						l.queued = true
+						// passed over unless held still as queued: one taken in or let go of since needs
+						// nothing, one held again was opened since (the next changed opens it again)
+						await run(() => held.get(h) === l ? l.again() : Promise.resolve())
+					}
+				}
 				await run(() => {
 					mailroom.retry(d)
 					return Promise.resolve()
@@ -952,15 +998,27 @@ export function createSubduction(
 	mailroom.attach({
 		send: (d, layer, kept) => layer === "stored" ? store(d, kept) : publish(d, kept),
 		stop: (d, table) => sub.publishEphemeral(of(d).topic, cbor.encode({ stop: table })),
+		// a seal taken in: a depth makes it worth building. a loose commit of it waiting on the lock
+		// waits no more (it got in another way: a fragment's member)
 		handed(d, s) {
 			if (depth(s) > 0) of(d).deep++
+			of(d).locked.commits.delete(hex(s))
 		},
 		// what waits on the lock, and the fragments refused whole
 		taking(d) {
 			const { locked, broken } = of(d)
 			const waiting: Taking["waiting"] = [], refused: Taking["refused"] = []
-			for (const [commit, c] of locked) if (c.commit) waiting.push({ commit, waiting: [] })
-			for (const [head, code] of broken) refused.push({ fragment: head, refused: code })
+			for (const head of locked.commits.keys()) waiting.push({ commit: head, waiting: [] })
+			for (const [head, f] of locked.fragments) {
+				waiting.push({ fragment: head, boundary: f.boundary })
+			}
+			for (const [head, r] of broken) {
+				refused.push({
+					fragment: head,
+					refused: r.code,
+					...(r.why !== undefined ? { why: r.why } : {}),
+				})
+			}
 			return { waiting, refused }
 		},
 	})

@@ -1,7 +1,9 @@
 // littlesync's messages (../littlesync.h, wire): CBOR maps with "t". read as the C side reads them:
 // a field of the wrong kind makes the message nothing (dropped); a name is 34 bytes (a BLAKE3
-// multihash), a node 32, a key 34 (an Ed25519 multikey)
+// multihash), a node an ermine id's bytes (18 or 34, its code says which: ermine/ids), a key 34 (an
+// Ed25519 multikey)
 import * as cbor from "@ermine/encoding/cbor"
+import { kind } from "@ermine/ids"
 
 export const STACK = "littlesync/0"
 // the merge rule an older littlesync commit with several parents named (littlesync now names none:
@@ -71,7 +73,7 @@ export function decode(bytes: Uint8Array): Message | undefined {
 			if (!isTopic(o.topic) || !isBytes(o.bytes)) return
 			return { t: "say", topic: o.topic, bytes: o.bytes }
 	}
-	if (typeof o.t !== "string" || !isBytes(o.node, 32)) return
+	if (typeof o.t !== "string" || !isBytes(o.node) || kind(o.node) === undefined) return
 	const node = o.node
 	switch (o.t) {
 		case "heads": {

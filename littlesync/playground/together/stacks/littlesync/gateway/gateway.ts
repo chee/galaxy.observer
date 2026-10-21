@@ -1,4 +1,4 @@
-// the gateway (../../../../../../ermine-plans/extensions/together/bridge.org): littlesync devices in
+// the gateway (../../../../../../ermine-plans/playground/together/bridge.org): littlesync devices in
 // rooms on a Subduction server. each littlesync link (link.ts) is one device; inside, one together
 // device (the mailroom and the subduction stack, memory storage) is a Subduction peer of the server.
 // nothing of its own is stored: the server holds everything, and a node is pulled again when a
@@ -20,7 +20,7 @@
 //                   stored commit there lands, or after HELD_MS with no beat. one heard from the room
 //                   goes to each device naming the node as it came, then is let go of here
 //   messages        a say (bytes on a topic: a presence row, presence.ts's message, on a room's
-//                   topic "ermine://<node's hex>"; any other, "dens:root") goes both ways unchanged, a
+//                   topic: the node's id, "ermine:<hex>"; any other, "dens:root") goes both ways unchanged, a
 //                   littlesync topic the same string as the together device's channel topic (send,
 //                   listen: Subduction's ephemeral topic is its hash). each device is told listen all
 //                   (what it says goes up); the topics it says it listens to are listened to upstream.
@@ -54,6 +54,7 @@ import { createSubduction, JOINING } from "../../subduction/typescript/subductio
 import { createHistory, type History, type Kept } from "../../../typescript/history.ts"
 import { createSigner, type Signer, stored, unseal } from "../../../typescript/seal.ts"
 import { hex, unhex } from "../../../typescript/hex.ts"
+import { bytes as idBytes, kind, text, tree as treeOf } from "@ermine/ids"
 import type { Device } from "../../../typescript/transport.ts"
 import type { Socket } from "./socket.ts"
 import { Link } from "./link.ts"
@@ -134,9 +135,12 @@ export type Gateway = {
 	close(): Promise<void>
 }
 
+// a node: its id, the id's bytes (the wire's node, what a seal binds) and its tree id (the mailroom's
+// documents are filed under it)
 type Node = {
 	id: string
 	bytes: Uint8Array
+	tree: Uint8Array
 	// the history check device commits go through first: every commit the device's stored history
 	// takes is added here too, so it holds what the room holds and what was forwarded
 	check: History
@@ -164,7 +168,7 @@ type State = {
 	told: number
 }
 
-const short = (s: string) => s.replace(/^ermine:\/\//, "").slice(0, 8)
+const short = (s: string) => s.replace(/^ermine:/, "").slice(0, 8)
 
 export function createGateway(options: {
 	signer: Signer
@@ -222,7 +226,8 @@ export function createGateway(options: {
 		const check = createHistory(() => true, { most: WAITING })
 		n = {
 			id,
-			bytes: unhex(id.slice(9)),
+			bytes: idBytes(id)!,
+			tree: treeOf(id)!,
 			check,
 			waiting: new Map(),
 			forwarded: new Map(),
@@ -248,7 +253,7 @@ export function createGateway(options: {
 
 	// a taken-in commit's seal: none for one a pack's next vouched for
 	function sealOf(node: Node, name: Uint8Array): Uint8Array | undefined {
-		const d = mailroom.documents.get(hex(node.bytes))
+		const d = mailroom.documents.get(hex(node.tree))
 		const ids = d?.names.get(hex(name))
 		for (const id of ids ?? []) {
 			const s = d!.seen.get(id)?.sealed
@@ -329,7 +334,7 @@ export function createGateway(options: {
 	// a device seal through the check: put to the stack as a loose commit (its stored id, its parents'
 	// stored ids, the seal as its blob: the lock is "unlocked")
 	async function forward(node: Node, k: Kept, sealed: Uint8Array) {
-		const d = mailroom.documents.get(hex(node.bytes))
+		const d = mailroom.documents.get(hex(node.tree))
 		const parents: Uint8Array[] = []
 		for (const p of k.parents) {
 			const id = d?.names.get(hex(p))?.[0] ?? node.forwarded.get(hex(p))
@@ -531,7 +536,11 @@ export function createGateway(options: {
 			return listened()
 		}
 		if (m.t === "say") return said(s, m.topic, m.bytes)
-		const id = "ermine://" + hex(m.node)
+		// a node a document can be: a fresh or hashed id (a keyhive id has no tree id until Keyhive)
+		const id = text(m.node)
+		if (id === undefined || kind(id) === "keyhive") {
+			return log(`${m.t}: not a node's id: ${hex(m.node).slice(0, 16)}`)
+		}
 		const node = nodeOf(id)
 		if (!s.conn.follows.has(id)) s.conn.follows.add(id)
 		let acked = s.acked.get(id)
@@ -586,7 +595,7 @@ export function createGateway(options: {
 		for (const s of states) {
 			for (const [id, u] of s.unacked) {
 				if (u.size) {
-					s.conn.link.send({ t: "ack", node: unhex(id.slice(9)), names: [...u].map(unhex) })
+					s.conn.link.send({ t: "ack", node: idBytes(id)!, names: [...u].map(unhex) })
 				}
 			}
 			s.unacked.clear()

@@ -2,7 +2,7 @@
 // along the bases to the newest snapshot (or the root), then forward, each commit decoded from its
 // bytes and applied to its table in place. everything built here is new: decoded from bytes,
 // shared with nothing, so applying in place costs the patches, not the tables. for a head that
-// doesn't show (conflicts), a head switch, a version (ermine://id/commit/…)
+// doesn't show (conflicts), a head switch, a version (ermine:<id>/commit/…, ermine/ids/url)
 //
 // a merge commit on the way back: its tables are its rule's merge of its parents, given merges;
 // the walk starts there. a rule is given only what is had without merging (a snapshot, or a walk

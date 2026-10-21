@@ -7,7 +7,7 @@ set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
 out=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
-main=extensions/together/stacks/littlesync/gateway/main.ts
+main=playground/together/stacks/littlesync/gateway/main.ts
 cd "$here"
 
 # Fetch what deno.lock pins, then leave out the parts of @automerge/subduction the gateway never

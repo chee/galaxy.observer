@@ -83,7 +83,7 @@ With a bucket, `SUBDUCTION_KEY_SEED` and `GATEWAY_SEED` the server needs no volu
 
 ## The littlesync gateway
 
-`littlesync/` holds the gateway (`extensions/together/stacks/littlesync/gateway/main.ts`
+`littlesync/` holds the gateway (`playground/together/stacks/littlesync/gateway/main.ts`
 in ermine, where its README says what it does) and every ermine file it
 imports, at the same paths; `VENDORED` says which ermine commit. `start.sh`
 runs it beside the server as a Subduction client of `ws://127.0.0.1:$PORT`,

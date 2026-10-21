@@ -5,11 +5,12 @@ import type { Code, Device, Layer } from "./transport.ts"
 
 // what the transport holds back or refused, before the histories
 export type Taking = {
-	waiting: { commit: string; waiting: string[] }[]
+	waiting: ({ commit: string; waiting: string[] } | { fragment: string; boundary: string[] })[]
+	// why: the text a lock refused with, beside the code lock
 	refused: (
-		| { commit: string; refused: Code }
+		| { commit: string; refused: Code; why?: string }
 		| { commit: string; stuck: string[] }
-		| { fragment: string; refused: Code }
+		| { fragment: string; refused: Code; why?: string }
 	)[]
 }
 
@@ -23,6 +24,7 @@ type Inside = {
 		blob: Uint8Array,
 	): Promise<void>
 	taking(doc: string, layer: Layer): Taking
+	file(doc: string, tree: Uint8Array): void
 }
 
 const insides = new WeakMap<Device, Inside>()
@@ -61,11 +63,17 @@ export function transport_conformance_hook_putFragment(
 	return of(device).putFragment(doc, head, boundary, checkpoints, blob)
 }
 
+// the document named, filed under another tree id than its own: as a second id naming a tree held
+// would be (two ids with one tree id), so that the refusal of one can be asked for
+export function transport_conformance_hook_file(device: Device, doc: string, tree: Uint8Array) {
+	of(device).file(doc, tree)
+}
+
 // what the transport holds back or refused before the histories. waiting: a loose commit (by its
-// head), or a fragment's member (by its seal's stored id), and the names of its parents not here.
-// refused, by id: a commit (code), a fragment refused whole, or one stuck on a parent refused or
-// stuck here. each list sorted by id. the ephemeral layer: no waiting, the refused ephemeral commits
-// by name
+// head), or a fragment's member (by its seal's stored id), and the names of its parents not here; or
+// a fragment waiting on the lock (by its head, its boundary: stored ids). refused, by id: a commit
+// (code), a fragment refused whole, or one stuck on a parent refused or stuck here. each list sorted
+// by id. the ephemeral layer: no waiting, the refused ephemeral commits by name
 export function transport_conformance_hook_taking(
 	device: Device,
 	doc: string,
