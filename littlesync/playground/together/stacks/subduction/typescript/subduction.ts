@@ -42,7 +42,7 @@ import { hex, unhex } from "../../../typescript/hex.ts"
 import { blake3 } from "npm:@noble/hashes@1.8.0/blake3"
 import * as cbor from "@ermine/encoding/cbor"
 import { CommitError, decode, name as nameOf, splitKey } from "@ermine/encoding/commit"
-import { build, depth, type Fragment, FragmentError, walk } from "./fragment.ts"
+import { build, depth, type Fragment } from "./fragment.ts"
 import type { Kept } from "../../../typescript/history.ts"
 import {
 	by,
@@ -510,7 +510,8 @@ export function createSubduction(
 	// every other member of less depth, and reached from the head along parents among the members; its
 	// boundary of the head's depth or more and none of its members; its checkpoints (their first 12
 	// bytes; given as Subduction keeps them, or none said) each member but the head with a depth. a
-	// head here whose walk can be made here: its members and boundary that walk's. a code: not taken
+	// head here whose fragment Subduction's build makes here (its walk, less the members of every
+	// fragment below): its members and boundary that fragment's. a code: not taken
 	async function checked(
 		d: Doc,
 		head: Uint8Array,
@@ -534,12 +535,9 @@ export function createSubduction(
 			if (want.size !== given.size || [...want].some((c) => !given.has(c))) return "boundary"
 		}
 		if (d.seen.has(h)) {
-			let w: Fragment | undefined
-			try {
-				w = walk(head, lookupOf(d), (x) => of(d).fragments.get(hex(x)))
-			} catch (e) {
-				if (!(e instanceof FragmentError)) throw e
-			}
+			// built again here: the head's own fragment here is left out
+			const known = (x: Uint8Array) => hex(x) === h ? undefined : of(d).fragments.get(hex(x))
+			const w = build([head], lookupOf(d), known).find((f) => same(f.head, head))
 			const set = (xs: Uint8Array[]) => [...new Set(xs.map(hex))].sort(by).join()
 			if (
 				w && (set(w.members) !== [...ids].sort(by).join() || set(w.boundary) !== set(boundary))

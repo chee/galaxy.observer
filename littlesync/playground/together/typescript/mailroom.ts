@@ -35,10 +35,10 @@ export type Check = (
 
 // why the mailroom or a stack refused a seal, a fragment or an ephemeral message before a history saw it.
 // what a history refuses (lamport, patches, a parent) is the history's: history(doc).refused().
-// boundary: a fragment's members, boundary or checkpoints not what its head's walk makes them. id:
-// an envelope opened (a stack's: the id and what it carries) naming another id than the one followed
-// (the refusal of a second id for a tree held is replaced by the envelope's id check), or a seal for
-// another id (seal.ts)
+// boundary: a fragment's members, boundary or checkpoints not what Subduction's build makes them for
+// its head. id: an envelope opened (a stack's: the id and what it carries) naming another id than the
+// one followed (the refusal of a second id for a tree held is replaced by the envelope's id check), or
+// a seal for another id (seal.ts)
 export type Code = "lock" | "shape" | "signature" | "stored" | "parents" | "boundary" | "id"
 // a refusal as it is noted: its code, and the text beside it (a lock's, or why an envelope's or a
 // seal's id is not this one)
