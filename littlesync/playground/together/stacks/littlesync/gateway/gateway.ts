@@ -50,11 +50,10 @@ import type * as sd from "npm:@automerge/subduction@0.23.0"
 import * as cbor from "@ermine/encoding/cbor"
 import { type Commit, decode, encode, name as nameOf } from "@ermine/encoding/commit"
 import { createMailroom, LIMITS } from "../../../typescript/mailroom.ts"
-import { createSubduction, JOINING } from "../../subduction/typescript/subduction.ts"
+import { createSubduction, envelope, JOINING } from "../../subduction/typescript/subduction.ts"
 import { createHistory, type History, type Kept } from "../../../typescript/history.ts"
 import { createSigner, type Signer, stored, unseal } from "../../../typescript/seal.ts"
 import { hex, unhex } from "../../../typescript/hex.ts"
-import { bytes as idBytes, kind, text, tree as treeOf } from "@ermine/ids"
 import type { Device } from "../../../typescript/transport.ts"
 import type { Socket } from "./socket.ts"
 import { Link } from "./link.ts"
@@ -135,12 +134,9 @@ export type Gateway = {
 	close(): Promise<void>
 }
 
-// a node: its id, the id's bytes (the wire's node, what a seal binds) and its tree id (the mailroom's
-// documents are filed under it)
+// a node: its id (the wire's node, what a seal binds; the mailroom's documents are filed under it)
 type Node = {
 	id: string
-	bytes: Uint8Array
-	tree: Uint8Array
 	// the history check device commits go through first: every commit the device's stored history
 	// takes is added here too, so it holds what the room holds and what was forwarded
 	check: History
@@ -226,8 +222,6 @@ export function createGateway(options: {
 		const check = createHistory(() => true, { most: WAITING })
 		n = {
 			id,
-			bytes: idBytes(id)!,
-			tree: treeOf(id)!,
 			check,
 			waiting: new Map(),
 			forwarded: new Map(),
@@ -253,7 +247,7 @@ export function createGateway(options: {
 
 	// a taken-in commit's seal: none for one a pack's next vouched for
 	function sealOf(node: Node, name: Uint8Array): Uint8Array | undefined {
-		const d = mailroom.documents.get(hex(node.tree))
+		const d = mailroom.documents.get(node.id)
 		const ids = d?.names.get(hex(name))
 		for (const id of ids ?? []) {
 			const s = d!.seen.get(id)?.sealed
@@ -291,7 +285,7 @@ export function createGateway(options: {
 		stats.in++
 		let u
 		try {
-			u = await unseal(sealed, node.bytes)
+			u = await unseal(sealed, node.id)
 		} catch (e) {
 			const c = peek(sealed)
 			return refuse(node, c && nameOf(c), "?", `seal: ${(e as Error).message}`)
@@ -322,7 +316,7 @@ export function createGateway(options: {
 		// the device may hold them (a gateway that began again has none of what it was sent)
 		const lacking = added.waiting.filter((p) => !node.waiting.has(p)).map(unhex)
 		if (lacking.length && !s.closed) {
-			s.conn.link.send({ t: "want", node: node.bytes, names: lacking })
+			s.conn.link.send({ t: "want", node: node.id, names: lacking })
 		}
 		log(
 			`waiting ${n.slice(4, 12)} on ${short(node.id)}: parents ${
@@ -332,9 +326,9 @@ export function createGateway(options: {
 	}
 
 	// a device seal through the check: put to the stack as a loose commit (its stored id, its parents'
-	// stored ids, the seal as its blob: the lock is "unlocked")
+	// stored ids, its envelope as its blob: the lock is "unlocked")
 	async function forward(node: Node, k: Kept, sealed: Uint8Array) {
-		const d = mailroom.documents.get(hex(node.tree))
+		const d = mailroom.documents.get(node.id)
 		const parents: Uint8Array[] = []
 		for (const p of k.parents) {
 			const id = d?.names.get(hex(p))?.[0] ?? node.forwarded.get(hex(p))
@@ -343,7 +337,7 @@ export function createGateway(options: {
 		}
 		const s = stored(sealed)
 		node.forwarded.set(hex(k.name), hex(s))
-		await wired.inside.put(node.id, s, parents, sealed)
+		await wired.inside.put(node.id, s, parents, envelope(node.id, { sealed }))
 		stats.forwarded++
 		log(`forwarded ${hex(k.name).slice(4, 12)} on ${short(node.id)} (lamport ${k.lamport})`)
 	}
@@ -362,7 +356,7 @@ export function createGateway(options: {
 		let batch: Uint8Array[] = [], size = 0
 		const flush = () => {
 			if (!batch.length) return
-			s.conn.link.send({ t: "commits", node: node.bytes, sealed: batch })
+			s.conn.link.send({ t: "commits", node: node.id, sealed: batch })
 			stats.out += batch.length
 			batch = [], size = 0
 		}
@@ -410,7 +404,7 @@ export function createGateway(options: {
 		if (!a.heard || device.history(a.doc).get(a.kept.name) !== undefined) return
 		for (const s of states) {
 			if (!s.conn.follows.has(a.doc)) continue
-			s.conn.link.send({ t: "ephemeral", node: node.bytes, commit: a.kept.bytes })
+			s.conn.link.send({ t: "ephemeral", node: node.id, commit: a.kept.bytes })
 			stats.ephemeral.out++
 		}
 		pumpAll()
@@ -438,7 +432,7 @@ export function createGateway(options: {
 		// on to the other devices naming the node, as it came (the C side relays so)
 		for (const o of states) {
 			if (o !== s && o.conn.follows.has(node.id)) {
-				o.conn.link.send({ t: "ephemeral", node: node.bytes, commit: bytes })
+				o.conn.link.send({ t: "ephemeral", node: node.id, commit: bytes })
 			}
 		}
 		const from = hex(nameOf(bytes)), h = s.holds.get(node.id)
@@ -536,11 +530,8 @@ export function createGateway(options: {
 			return listened()
 		}
 		if (m.t === "say") return said(s, m.topic, m.bytes)
-		// a node a document can be: a fresh or hashed id (a keyhive id has no tree id until Keyhive)
-		const id = text(m.node)
-		if (id === undefined || kind(id) === "keyhive") {
-			return log(`${m.t}: not a node's id: ${hex(m.node).slice(0, 16)}`)
-		}
+		// a node a document can be: an ermine id, of any kind (wire.ts's decode checked it)
+		const id = m.node
 		const node = nodeOf(id)
 		if (!s.conn.follows.has(id)) s.conn.follows.add(id)
 		let acked = s.acked.get(id)
@@ -595,7 +586,7 @@ export function createGateway(options: {
 		for (const s of states) {
 			for (const [id, u] of s.unacked) {
 				if (u.size) {
-					s.conn.link.send({ t: "ack", node: idBytes(id)!, names: [...u].map(unhex) })
+					s.conn.link.send({ t: "ack", node: id, names: [...u].map(unhex) })
 				}
 			}
 			s.unacked.clear()

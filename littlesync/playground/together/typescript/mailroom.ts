@@ -8,9 +8,9 @@
 import { type Commit, CommitError, decode, name as nameOf } from "@ermine/encoding/commit"
 import { type Added, createHistory, type History, type Judged, type Kept } from "./history.ts"
 import { hex, unhex } from "./hex.ts"
-import { bytes as idBytes, kind, tree as treeOf } from "@ermine/ids"
+import { kind } from "@ermine/ids"
 import { matches, type Merges, type Tables } from "./replay.ts"
-import { seal, type Signer, stored, unseal, type Verifier } from "./seal.ts"
+import { seal, type Signer, stored, unseal, utf8, type Verifier } from "./seal.ts"
 import { tablesOf } from "./snapshot.ts"
 import type { Taking } from "./transport_conformance_hook.ts"
 
@@ -35,9 +35,12 @@ export type Check = (
 
 // why the mailroom or a stack refused a seal, a fragment or an ephemeral message before a history saw it.
 // what a history refuses (lamport, patches, a parent) is the history's: history(doc).refused().
-// boundary: a fragment's members, boundary or checkpoints not what its head's walk makes them
-export type Code = "lock" | "shape" | "signature" | "stored" | "parents" | "boundary"
-// a refusal as it is noted: its code, and the text a lock refused with beside it
+// boundary: a fragment's members, boundary or checkpoints not what its head's walk makes them. id:
+// an envelope opened (a stack's: the id and what it carries) naming another id than the one followed
+// (the refusal of a second id for a tree held is replaced by the envelope's id check)
+export type Code = "lock" | "shape" | "signature" | "stored" | "parents" | "boundary" | "id"
+// a refusal as it is noted: its code, and the text beside it (a lock's, or why an envelope's id is
+// not this one)
 export type Refusal = { code: Code; why?: string }
 
 // what a device holds for others at most, each letting go of its oldest past it (heard again, it
@@ -50,13 +53,14 @@ export const LIMITS: Limits = { pending: 65536, refused: 4096, waiting: 1024 }
 
 export const by = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
 
-// a document's id as its bytes, from its text (ermine/ids): fresh or hashed. a keyhive id has no
-// tree id until Keyhive, so it is no document's (else anyone could write an ed01 id whose 32 bytes
-// are another document's tree)
+// a document's id as its UTF-8 (what a seal and the lock bind). for now only an ermine id (of any
+// kind: ermine/ids) is a document here: which nodes sync is sync's own question, and changes with
+// its plan, not here
 export function bytesOf(doc: string): Uint8Array {
-	const b = typeof doc === "string" ? idBytes(doc) : undefined
-	if (b === undefined || kind(b) === "keyhive") throw new TypeError(`not a document id: ${doc}`)
-	return b
+	if (typeof doc !== "string" || kind(doc) === undefined) {
+		throw new TypeError(`not a document id: ${doc}`)
+	}
+	return utf8(doc)
 }
 
 // noted in a map (or a set), the oldest let go of past most
@@ -108,12 +112,11 @@ export type Pending = {
 }
 
 // a document as the mailroom holds it. a stack reads names and seen (what it builds from); it changes
-// nothing here but through the mailroom's functions. bytes: its id's (what a seal and the lock
-// bind); tree: its tree id (ermine/ids tree), what Subduction files it under
+// nothing here but through the mailroom's functions. bytes: its id's UTF-8 (what the lock binds;
+// a seal binds the id). a stack files it under its own address (Subduction's: a tree id)
 export type Doc = {
 	id: string
 	bytes: Uint8Array
-	tree: Uint8Array
 	histories: Record<Layer, History>
 	// what each history was given from elsewhere and has not taken in yet, by name: whether heard
 	elsewhere: Record<Layer, Map<string, boolean>>
@@ -139,6 +142,8 @@ export type Doc = {
 
 // what a stack is to the mailroom: the mailroom hands it what this device made, and what to say
 export type Stack = {
+	// a document made (first named): the stack may file it under its own address
+	made?(d: Doc): void
 	// an own take, taken into the histories, going out: a stored one sealed and stored, an
 	// ephemeral one published. called one at a time in the order made, so a commit's parents are
 	// stored before it
@@ -283,21 +288,12 @@ export function createMailroom(
 	// own takes that waited, let in by an add: sent by tell, after what let them in
 	const released: { d: Doc; layer: Layer; kept: Kept }[] = []
 
-	// the document filed under a tree id: none until its id is named (a hash can't be turned back
-	// into an id). what comes for a tree with no id named is the stack's to hold until it is
-	const document = (tree: Uint8Array): Doc | undefined => documents.get(hex(tree))
-
-	// a document by its id, made when first named, filed under its tree id. a second id naming a
-	// tree held already is refused
-	const named = (id: string): Doc => file(id, treeOf(bytesOf(id))!)
-	// the document filed under that tree (its own tree id, but for the conformance hook's file)
-	function file(id: string, tree: Uint8Array): Doc {
-		const bytes = bytesOf(id), key = hex(tree)
-		let d = documents.get(key)
-		if (d) {
-			if (d.id !== id) throw new TypeError(`a second id for a tree held: ${id}`)
-			return d
-		}
+	// a document by its id, made when first named (the stack told, so it files it under its own
+	// address). an id is compared as its bytes: two ids, two documents
+	function named(id: string): Doc {
+		let d = documents.get(id)
+		if (d) return d
+		const bytes = bytesOf(id)
 		// own takes and the check: everything from elsewhere is marked in elsewhere before its
 		// history's add, and stays marked until taken in. the history's check asks the integration's
 		// only for a marked commit; one not marked is this device's own take (or a seal of it, handed
@@ -337,7 +333,6 @@ export function createMailroom(
 		d = {
 			id,
 			bytes,
-			tree,
 			histories: { stored: make("stored"), ephemeral: make("ephemeral") },
 			elsewhere,
 			own,
@@ -351,7 +346,8 @@ export function createMailroom(
 			bad: new Set(),
 			heard: new Map(),
 		}
-		documents.set(key, d)
+		documents.set(id, d)
+		stack?.made?.(d)
 		return d
 	}
 
@@ -436,7 +432,7 @@ export function createMailroom(
 	// a seal opened and checked, in its document: its commit, as the mailroom reads it. a SealError:
 	// refused
 	async function opened(d: Doc, sealed: Uint8Array): Promise<Sealed> {
-		const u = await unseal(sealed, d.bytes, options.verifiers)
+		const u = await unseal(sealed, d.id, options.verifiers)
 		const { lamport, parents } = u.commit
 		return { name: u.name, bytes: u.bytes, stored: u.stored, lamport, parents }
 	}
@@ -548,7 +544,7 @@ export function createMailroom(
 
 	// a stored commit of this device's: sealed, and its stored id. named already, its signer this one
 	async function sealed(d: Doc, kept: Kept) {
-		const sealed = await seal(kept.bytes, options.signer, d.bytes, { name: kept.name })
+		const sealed = await seal(kept.bytes, options.signer, d.id, { name: kept.name })
 		return { sealed, stored: stored(sealed) }
 	}
 
@@ -684,6 +680,7 @@ export function createMailroom(
 		// the stack the mailroom hands what goes out to: before anything is taken
 		attach(k: Stack) {
 			stack = k
+			for (const d of documents.values()) k.made?.(d)
 		},
 		// the queue taking in and building go through, one at a time; what a stack's work throws
 		// waits in trouble for idle
@@ -691,9 +688,7 @@ export function createMailroom(
 		later,
 		trouble,
 		documents,
-		document,
 		named,
-		file,
 		moved,
 		admit,
 		refuse,

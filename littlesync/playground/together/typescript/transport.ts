@@ -36,7 +36,8 @@ export type { Fragment } from "../stacks/subduction/typescript/subduction.ts"
 // in; a commit whose parents come later waits, as ever). a tree whose id is not named yet (a tree id
 // is a hash of the id: it can't be turned back) is only listed (unnamed() counts them), and taken
 // in when its document is first followed (fragments, then loose commits, as the start would),
-// before it is fetched from any peer; a save or an arrival for a tree with no id named is refused.
+// before it is fetched from any peer; a save or an arrival for a tree with no id named is stored as
+// it came, unchecked (its envelopes can't be opened without the id), and taken in on follow.
 // everything that touches the network (connect, connectDiscover, follow) waits for the start;
 // take's sealing and storing, put and the other work queue behind it. ready() resolves when it is
 // done; it throws what the storage threw. lazy: every tree only listed at the start, so the
@@ -81,7 +82,6 @@ export function createDevice(
 	hooks(device, {
 		...wired.inside,
 		taking: (doc, layer) => mailroom.device.taking(doc, layer),
-		file: (doc, tree) => void mailroom.file(doc, tree),
 	})
 	return device
 }

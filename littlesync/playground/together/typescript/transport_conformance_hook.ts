@@ -24,7 +24,6 @@ type Inside = {
 		blob: Uint8Array,
 	): Promise<void>
 	taking(doc: string, layer: Layer): Taking
-	file(doc: string, tree: Uint8Array): void
 }
 
 const insides = new WeakMap<Device, Inside>()
@@ -61,12 +60,6 @@ export function transport_conformance_hook_putFragment(
 	blob: Uint8Array,
 ): Promise<void> {
 	return of(device).putFragment(doc, head, boundary, checkpoints, blob)
-}
-
-// the document named, filed under another tree id than its own: as a second id naming a tree held
-// would be (two ids with one tree id), so that the refusal of one can be asked for
-export function transport_conformance_hook_file(device: Device, doc: string, tree: Uint8Array) {
-	of(device).file(doc, tree)
 }
 
 // what the transport holds back or refused before the histories. waiting: a loose commit (by its

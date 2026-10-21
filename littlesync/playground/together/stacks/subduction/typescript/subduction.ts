@@ -7,7 +7,19 @@
 // stack's transport.ts (now in ermine-graveyard/extensions/subduction), which carries blops. the lock
 // is together's (../../../typescript/lock.ts). the mailroom (mailroom.ts) holds the histories and what
 // is taken in; this hands it what arrives (pend, settle, member, hint, hear, stopped) and is its
-// Stack (send, stop, handed, taking)
+// Stack (made, send, stop, handed, taking).
+//
+// the envelope: what this stack stores and sends of a node, before the lock closes it: a map of the
+// node's id and what it carries. {id, sealed}: a loose commit, its seal; {id, commit}: an ephemeral
+// commit, never sealed; {id, run, snapshot?} (or {id, members, snapshot?}, as first written): a
+// fragment. relays see only the tree id. a receiver opens it with the id it follows (the one its tree
+// id was made from) and checks the envelope's id is that one, else refuses it (id) as it is taken
+// in (stored as it came: nothing is refused from inside Subduction's storage for it), so what is
+// opened is only what is followed. a tree not followed: what comes for it is stored as it came
+// (unnamed)
+//
+// the tree id: the first 16 bytes of BLAKE3 of the pieces "ermine/v1/tree" and the id's UTF-8 (each
+// its length as an unsigned varint, then its bytes), then 16 zero bytes (galaxy's Keyhive rule)
 import * as sd from "npm:@automerge/subduction@0.23.0"
 import { type Lock, unlocked } from "../../../typescript/lock.ts"
 import {
@@ -34,7 +46,14 @@ import {
 	refusal,
 	type Sealed,
 } from "../../../typescript/mailroom.ts"
-import { ED25519, ed25519Key, SealError, type Signer } from "../../../typescript/seal.ts"
+import {
+	ED25519,
+	ed25519Key,
+	SealError,
+	type Signer,
+	utf8,
+	varint,
+} from "../../../typescript/seal.ts"
 import { tablesOf } from "../../../typescript/snapshot.ts"
 import type { Taking } from "../../../typescript/transport_conformance_hook.ts"
 
@@ -81,6 +100,57 @@ export type Wired = {
 }
 
 const commitId = (b: Uint8Array) => new sd.CommitId(b)
+
+const TREE = new TextEncoder().encode("ermine/v1/tree")
+
+// the tree id Subduction files a node under: made from its id (above)
+export function treeOf(id: string): Uint8Array {
+	const all: number[] = []
+	for (const p of [TREE, utf8(id)]) all.push(...varint(p.length), ...p)
+	const out = new Uint8Array(32)
+	out.set(blake3(Uint8Array.from(all)).subarray(0, 16))
+	return out
+}
+
+// an envelope's bytes: the id and what it carries (above), canonical CBOR. an id not well-formed:
+// refused (shape)
+export function envelope(id: string, carries: { [key: string]: cbor.Value }): Uint8Array {
+	utf8(id)
+	return cbor.encode({ ...carries, id })
+}
+
+// why an envelope for another id is refused, beside the code id
+export const OTHER = "the envelope is for another id"
+
+// an envelope opened, for the document: what it carries (its id taken off), when its keys are id and
+// those of one of the forms (each a list of keys; a key ending "?" may be left out); a code: not
+// one (shape), or for another id (id)
+function opens(
+	d: Doc,
+	open: Uint8Array,
+	...forms: string[][]
+): { [key: string]: cbor.Value } | "shape" | "id" {
+	let x: cbor.Value
+	try {
+		x = cbor.decode(open)
+	} catch (e) {
+		if (e instanceof cbor.CborError) return "shape"
+		throw e
+	}
+	if (x === null || typeof x !== "object" || Array.isArray(x) || ArrayBuffer.isView(x)) {
+		return "shape"
+	}
+	const { id, ...rest } = x as { [key: string]: cbor.Value }
+	if (typeof id !== "string") return "shape"
+	const keys = Object.keys(rest)
+	const fits = forms.some((f) => {
+		const need = f.filter((k) => !k.endsWith("?")), may = f.map((k) => k.replace(/\?$/, ""))
+		return need.every((k) => k in rest) && keys.every((k) => may.includes(k))
+	})
+	if (!fits) return "shape"
+	if (id !== d.id) return "id"
+	return rest
+}
 
 const same = (a: Uint8Array, b: Uint8Array) =>
 	a.length === b.length && a.every((x, i) => x === b[i])
@@ -135,15 +205,21 @@ export function createSubduction(
 	const join = options.join ?? 30000
 	const limits = options.limits
 	const lazy = options.lazy === true
-	const { run, later, trouble, document, named } = mailroom
+	const { run, later, trouble, named } = mailroom
 	const { moved, refuse, clear, settle, opened, pend, member, hint } = mailroom
 	const trees = new WeakMap<Doc, Tree>()
+	// the documents by their tree id's hex: which id made this tree id. none for a tree until its
+	// document is named (a hash can't be turned back into an id): what comes for it is unnamed
+	const docs = new Map<string, Doc>()
+	const document = (tree: Uint8Array): Doc | undefined => docs.get(hex(tree))
 	function of(d: Doc): Tree {
 		let t = trees.get(d)
 		if (t === undefined) {
+			const id = treeOf(d.id)
+			docs.set(hex(id), d)
 			t = {
-				tree: sd.SedimentreeId.fromBytes(d.tree),
-				topic: sd.Topic.fromBytes(d.tree),
+				tree: sd.SedimentreeId.fromBytes(id),
+				topic: sd.Topic.fromBytes(id),
 				fragments: new Map(),
 				broken: new Map(),
 				locked: { commits: new Map(), fragments: new Map() },
@@ -169,28 +245,36 @@ export function createSubduction(
 	// ---- taking in
 
 	// a loose commit's first steps, the lock, the seal, its stored id: what the lock opened and its
-	// commit; "wait": the lock cannot open it yet; undefined: refused, noted
+	// commit; "wait": the lock cannot open it yet; "id": an envelope for another id (not noted: the
+	// caller's); undefined: refused, noted
 	async function opening(
 		d: Doc,
 		h: string,
 		blob: Uint8Array,
-	): Promise<{ open: Uint8Array; it: Sealed } | "wait" | undefined> {
+	): Promise<{ sealed: Uint8Array; it: Sealed } | "wait" | "id" | undefined> {
 		const open = await lock.open(d.bytes, blob)
 		if (!(open instanceof Uint8Array)) {
 			if ("wait" in open) return "wait"
 			refuse(d, h, "lock", undefined, open.refused), settle(d)
 			return
 		}
+		const got = opens(d, open, ["sealed"])
+		if (got === "id") return "id"
+		if (got === "shape" || !(got.sealed instanceof Uint8Array)) {
+			refuse(d, h, "shape"), settle(d)
+			return
+		}
+		const sealed = got.sealed
 		let it: Sealed
 		try {
-			it = await opened(d, open)
+			it = await opened(d, sealed)
 		} catch (e) {
 			if (!(e instanceof SealError)) throw e
 			refuse(d, h, e.code)
 			return
 		}
 		if (hex(it.stored) !== h) return void (refuse(d, h, "stored", hex(it.name)), settle(d))
-		return { open, it }
+		return { sealed, it }
 	}
 
 	// the steps of a loose commit, in order: the lock, the seal, its stored id, then pending
@@ -200,6 +284,7 @@ export function createSubduction(
 		of(d).locked.commits.delete(h)
 		const got = await opening(d, h, blob)
 		if (got === undefined) return
+		if (got === "id") return void (refuse(d, h, "id", undefined, OTHER), settle(d))
 		if (got === "wait") {
 			clear(d, h)
 			note(limits.pending, of(d).locked.commits, h, {
@@ -211,7 +296,7 @@ export function createSubduction(
 		pend(d, h, {
 			commit: true,
 			it: got.it,
-			sealed: got.open,
+			sealed: got.sealed,
 			parents: got.it.parents.map(hex),
 			given: parents.map(hex).sort(by),
 		})
@@ -220,7 +305,9 @@ export function createSubduction(
 
 	// what Subduction may store of a loose commit (its admission): one that opens to a seal under
 	// its stored id, or waits on the lock. what is refused is noted, as taking it in notes it, and
-	// told (moved) now, as a take tells
+	// told (moved) now, as a take tells. an envelope for another id is admitted, stored as it came,
+	// and refused (id) as it is taken in: a refusal here is a throw out of Subduction's storage, which
+	// drops the peer's connection
 	async function allows(d: Doc, head: Uint8Array, blob: Uint8Array): Promise<boolean> {
 		const h = hex(head)
 		if (d.seen.has(h) || await opening(d, h, blob) !== undefined) return true
@@ -228,8 +315,8 @@ export function createSubduction(
 		return false
 	}
 
-	// a fragment's blob opened: {run: its members as a pack (packer.ts), snapshot?: packed tables}, or
-	// {members: [sealed…], snapshot?} as it was first written. each member unsealed as it is read,
+	// a fragment's envelope opened: {id, run: its members as a pack (packer.ts), snapshot?: packed
+	// tables}, or {id, members: [sealed…], snapshot?} as it was first written. each member unsealed as it is read,
 	// in order: the first that is not good ends it, and the fragment is refused whole with its code
 	// (a pack that is not one, or comes to too much: shape). one a pack's next vouches for is taken once
 	// that one's signature is good. the snapshot dropped when it does not read back
@@ -237,27 +324,17 @@ export function createSubduction(
 		d: Doc,
 		open: Uint8Array,
 	): Promise<{ members: Member[]; snapshot?: Uint8Array } | Code> {
-		let x: unknown
-		try {
-			x = cbor.decode(open)
-		} catch (e) {
-			if (e instanceof cbor.CborError) return "shape"
-			throw e
-		}
-		if (x === null || typeof x !== "object" || Array.isArray(x) || ArrayBuffer.isView(x)) {
-			return "shape"
-		}
-		const o = x as Record<string, unknown>
-		const keys = Object.keys(o).sort().join()
+		const o = opens(d, open, ["run", "snapshot?"], ["members", "snapshot?"])
+		if (typeof o === "string") return o
 		let items: Iterable<unknown>
-		// "run": the blob's key, kept as stored
-		if (keys === "run" || keys === "run,snapshot") {
+		// "run": the blob's key, as stored
+		if ("run" in o) {
 			if (!(o.run instanceof Uint8Array)) return "shape"
 			items = unpacking(o.run)
-		} else if (keys === "members" || keys === "members,snapshot") {
+		} else {
 			if (!Array.isArray(o.members)) return "shape"
 			items = o.members
-		} else return "shape"
+		}
 		const members: Member[] = [], vouched: Member[] = []
 		try {
 			for (const item of items) {
@@ -381,7 +458,8 @@ export function createSubduction(
 			return false
 		}
 		const got = await checked(d, head, boundary, checkpoints, open)
-		if (typeof got !== "string") return true
+		// another id's: admitted, refused as it is taken in (allows)
+		if (typeof got !== "string" || got === "id") return true
 		if (!d.seen.has(h)) broke(d, h, got)
 		moved(d)
 		return false
@@ -421,7 +499,7 @@ export function createSubduction(
 		}
 		const got = await checked(d, head, boundary, checkpoints, open)
 		if (typeof got === "string") {
-			if (!here) broke(d, h, got)
+			if (!here) broke(d, h, got, got === "id" ? OTHER : undefined)
 			return
 		}
 		of(d).broken.delete(h)
@@ -443,7 +521,12 @@ export function createSubduction(
 			if (!("wait" in open)) mailroom.unheard(d, nameOf(blob), "lock", open.refused)
 			return
 		}
-		mailroom.hear(d, open, ed25519Key(from))
+		const got = opens(d, open, ["commit"])
+		if (typeof got === "string" || !(got.commit instanceof Uint8Array)) {
+			const code = typeof got === "string" ? got : "shape"
+			return mailroom.unheard(d, nameOf(blob), code, code === "id" ? OTHER : undefined)
+		}
+		mailroom.hear(d, got.commit, ed25519Key(from))
 	}
 
 	// ---- parts of an ephemeral payload over Subduction's limit
@@ -557,7 +640,7 @@ export function createSubduction(
 			const ms = f.members.map((m) => ({ id: m, ...d.seen.get(hex(m))! }))
 			ms.sort((a, b) => a.lamport - b.lamport || by(a.name, b.name))
 			const top = d.seen.get(hex(f.head))!.name
-			// "run": the blob's key, kept as stored
+			// "run": the blob's key, as stored
 			const blob: { run: Uint8Array; snapshot?: Uint8Array } = {
 				run: packing(ms.map((m) => m.sealed ?? { commit: m.bytes, stored: m.id })),
 			}
@@ -567,7 +650,7 @@ export function createSubduction(
 				blob.snapshot = snapshot
 				hint(d, top, snapshot, true)
 			}
-			const bytes = cbor.encode(blob as cbor.Value)
+			const bytes = envelope(d.id, blob)
 			const names = f.boundary.map((b) => unhex(d.seen.get(hex(b))!.name))
 				.sort((a, b) => by(hex(a), hex(b)))
 			const closed = await lock.close(d.bytes, nameOf(bytes), names, bytes)
@@ -627,7 +710,7 @@ export function createSubduction(
 	async function store(d: Doc, kept: Kept) {
 		// this device's own: named already, its signer this one
 		const { sealed, stored: s } = await mailroom.sealed(d, kept)
-		const blob = await lock.close(d.bytes, kept.name, kept.parents, sealed)
+		const blob = await lock.close(d.bytes, kept.name, kept.parents, envelope(d.id, { sealed }))
 		const parents = await mailroom.handed(d, kept, sealed, s)
 		const r = await sub.addCommit(of(d).tree, commitId(s), parents.map(commitId), blob)
 		if (r) await run(() => building(d, [s]))
@@ -635,7 +718,12 @@ export function createSubduction(
 
 	// an ephemeral commit of this device's: closed, published, as parts when over LIMIT
 	async function publish(d: Doc, kept: Kept) {
-		const blob = await lock.close(d.bytes, kept.name, kept.parents, kept.bytes)
+		const blob = await lock.close(
+			d.bytes,
+			kept.name,
+			kept.parents,
+			envelope(d.id, { commit: kept.bytes }),
+		)
 		if (blob.length <= LIMIT) return await sub.publishEphemeral(of(d).topic, blob)
 		const whole = blake3(blob), parts = Math.ceil(blob.length / PART)
 		for (let i = 0; i < parts; i++) {
@@ -765,7 +853,7 @@ export function createSubduction(
 		signer: { sign: (m) => options.signer.sign(m), verifyingKey: () => own.key },
 		storage,
 		onEphemeral: (topic: sd.Topic, from: sd.PeerId, payload: Uint8Array) => {
-			const t = topic.toBytes(), k = hex(t), d = mailroom.documents.get(k)
+			const t = topic.toBytes(), k = hex(t), d = docs.get(k)
 			const part = partOf(payload)
 			// a channel topic (hashed, so never a document's) goes to its listeners
 			const c = topics.get(k)
@@ -838,7 +926,7 @@ export function createSubduction(
 
 	// a followed document's tree taken in from the storage, once, before anything else of it
 	async function loadFollowed(d: Doc) {
-		const k = hex(d.tree)
+		const k = hex(of(d).tree.toBytes())
 		if (!held.has(k) || taken.has(k)) return
 		taken.add(k)
 		await run(() => load(of(d).tree))
@@ -913,7 +1001,7 @@ export function createSubduction(
 				: await sub.acceptTransport(transport, service)
 			peers.set(hex(peer.toBytes()), peer)
 			await again()
-			for (const doc of followed) await fetched(mailroom.documents.get(doc)!)
+			for (const doc of followed) await fetched(docs.get(doc)!)
 		},
 		async connectDiscover(url, service) {
 			await loaded
@@ -922,7 +1010,7 @@ export function createSubduction(
 				: await sub.connectDiscover(new URL(url), service)
 			peers.set(hex(peer.toBytes()), peer)
 			await again()
-			for (const doc of followed) await fetched(mailroom.documents.get(doc)!)
+			for (const doc of followed) await fetched(docs.get(doc)!)
 		},
 		async disconnect(key) {
 			// the peer by its Ed25519 key: the multikey's
@@ -935,7 +1023,7 @@ export function createSubduction(
 		async follow(doc) {
 			await loaded
 			const d = named(doc)
-			followed.add(hex(d.tree))
+			followed.add(hex(of(d).tree.toBytes()))
 			await loadFollowed(d)
 			await subscribe(of(d).topic)
 			await fetched(d)
@@ -966,7 +1054,7 @@ export function createSubduction(
 			return (cs ?? []).map((c) => c.commitId.toBytes())
 		},
 		fragments: (doc) => [...of(named(doc)).fragments.values()],
-		unnamed: () => [...held].filter((k) => !mailroom.documents.has(k)).length,
+		unnamed: () => [...held].filter((k) => !docs.has(k)).length,
 		async changed() {
 			for (const d of mailroom.documents.values()) {
 				const { commits, fragments } = of(d).locked
@@ -996,6 +1084,7 @@ export function createSubduction(
 		},
 	}
 	mailroom.attach({
+		made: (d) => void of(d),
 		send: (d, layer, kept) => layer === "stored" ? store(d, kept) : publish(d, kept),
 		stop: (d, table) => sub.publishEphemeral(of(d).topic, cbor.encode({ stop: table })),
 		// a seal taken in: a depth makes it worth building. a loose commit of it waiting on the lock

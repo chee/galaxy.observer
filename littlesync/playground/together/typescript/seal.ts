@@ -1,8 +1,8 @@
 // a commit signed by the device that made it, and the id it is stored under (extensions/subduction/
 // plan.org, Rewrite for the new shape, 2). sealed: {commit: its bytes, signature}, the signer's key
-// once (it is in the commit). signed: "ermine/v1/commit", the document's id as its bytes (18 or 34,
-// its code says which: ermine/ids), the signature's varsig header, then the commit's name, so a seal is good in its document
-// only (nothing of the document goes in the seal: the document is where it came, a sedimentree),
+// once (it is in the commit). signed: "ermine/v1/commit", the length of the document's id's UTF-8
+// (an unsigned varint), that UTF-8, the signature's varsig header, then the commit's name, so a seal
+// is good in its document only (nothing of the document goes in the seal: the document is where it came, a sedimentree),
 // and a header put on another signature is no longer good (the varsig spec recommends the header
 // be in what is signed). the signature is self-describing: a varsig header, then the raw signature.
 // the commit's signer is a multikey (commit.ts). Ed25519 through WebCrypto, which every browser, Deno and Node have: a key made here
@@ -13,7 +13,6 @@ import { blake3 } from "npm:@noble/hashes@1.8.0/blake3"
 import * as cbor from "@ermine/encoding/cbor"
 import { type Commit, decode, joinKey, name as nameOf, splitKey } from "@ermine/encoding/commit"
 import { strict } from "./ed25519.ts"
-import { kind } from "@ermine/ids"
 
 // key: the device's multikey; header: the varsig header its signatures begin with; sign: the raw
 // signature of the message, without the header
@@ -73,16 +72,29 @@ const PKCS8 = Uint8Array.from([
 	0x20,
 ])
 
-// what is signed: the domain, the document's id (its bytes), the signature's header, the commit's
-// name (an id, a header and a name each tell their own length). doc not an ermine id: shape
-const message = (doc: Uint8Array, header: Uint8Array, name: Uint8Array) => {
-	if (kind(doc) === undefined) throw new SealError("shape")
-	const n = doc.length
-	const m = new Uint8Array(DOMAIN.length + n + header.length + name.length)
-	m.set(DOMAIN)
-	m.set(doc, DOMAIN.length)
-	m.set(header, DOMAIN.length + n)
-	m.set(name, DOMAIN.length + n + header.length)
+// an id: any well-formed string, compared as its bytes, never normalised. its UTF-8; one with a lone
+// surrogate has none (TextEncoder would make it U+FFFD, and two ids one signature): shape
+export function utf8(id: string): Uint8Array {
+	if (typeof id !== "string" || !id.isWellFormed()) throw new SealError("shape")
+	return new TextEncoder().encode(id)
+}
+
+// a length as an unsigned varint
+export function varint(n: number): number[] {
+	const out = []
+	do out.push((n & 0x7f) | (n >= 0x80 ? 0x80 : 0)), n = Math.floor(n / 0x80)
+	while (n > 0)
+	return out
+}
+
+// what is signed: the domain, the length of the document's id's UTF-8 (a varint), that UTF-8, the
+// signature's header, the commit's name (a header and a name each tell their own length). an id not
+// well-formed: shape
+const message = (doc: string, header: Uint8Array, name: Uint8Array) => {
+	const id = utf8(doc), n = varint(id.length)
+	const m = new Uint8Array(DOMAIN.length + n.length + id.length + header.length + name.length)
+	let at = 0
+	for (const part of [DOMAIN, n, id, header, name]) m.set(part, at), at += part.length
 	return m
 }
 
@@ -227,14 +239,14 @@ export const verifiers: readonly Verifier[] = [
 	{ header: ED25519_HEADER, code: ED25519, size: 64, verify: good },
 ]
 
-// the sealed commit's bytes, for the document (its id's bytes). the commit's signer must be this
+// the sealed commit's bytes, for the document (its id). the commit's signer must be this
 // signer's key. made: its name, and its commit, from whoever just made it: not decoded or named
 // again; given a name and no commit, the caller vouches that its signer is this one (a device sealing
 // its own)
 export async function seal(
 	bytes: Uint8Array,
 	signer: Signer,
-	doc: Uint8Array,
+	doc: string,
 	made?: { commit?: Commit; name: Uint8Array },
 ): Promise<Uint8Array> {
 	const commit = made ? made.commit : decode(bytes)
@@ -249,13 +261,13 @@ export async function seal(
 
 export type Unsealed = { commit: Commit; bytes: Uint8Array; name: Uint8Array; stored: Uint8Array }
 
-// the commit, checked: its shape, and its signer's signature for the document (its id's bytes), by
+// the commit, checked: its shape, and its signer's signature for the document (its id), by
 // the verifier whose header the signature begins with: the built in, then more (a caller's). no
 // verifier for the header, or one whose key type is not the signer's: refused as a signature not
 // good, with the reason
 export async function unseal(
 	sealed: Uint8Array,
-	doc: Uint8Array,
+	doc: string,
 	more: readonly Verifier[] = [],
 ): Promise<Unsealed> {
 	let x: unknown

@@ -1,7 +1,7 @@
 // littlesync's messages (../littlesync.h, wire): CBOR maps with "t". read as the C side reads them:
 // a field of the wrong kind makes the message nothing (dropped); a name is 34 bytes (a BLAKE3
-// multihash), a node an ermine id's bytes (18 or 34, its code says which: ermine/ids), a key 34 (an
-// Ed25519 multikey)
+// multihash), a node an id as text (its UTF-8 at most ID_LEN bytes; for now an ermine id, of any
+// kind: ermine/ids, which nodes sync being sync's own question), a key 34 (an Ed25519 multikey)
 import * as cbor from "@ermine/encoding/cbor"
 import { kind } from "@ermine/ids"
 
@@ -10,6 +10,8 @@ export const STACK = "littlesync/0"
 // each patch says what it replaces, values.org)
 export const MERGE = "littlesync/lww-path"
 export const NAME = 34
+// a node's id at most, in bytes (UTF-8, LS_ID_LEN): littlesync refuses a longer one
+export const ID_LEN = 128
 export const KEY = 34
 // a held value goes after this long without a beat; a device beats this often (LS_HELD_MS, LS_BEAT_MS)
 export const HELD_MS = 4000
@@ -22,11 +24,11 @@ export const SEALED = 160
 
 export type Message =
 	| { t: "hello"; key: Uint8Array; stack: string; re?: boolean }
-	| { t: "heads"; node: Uint8Array; heads: Uint8Array[]; re?: boolean }
-	| { t: "want"; node: Uint8Array; names: Uint8Array[] }
-	| { t: "commits"; node: Uint8Array; sealed: Uint8Array[] }
-	| { t: "ephemeral"; node: Uint8Array; commit: Uint8Array }
-	| { t: "ack"; node: Uint8Array; names: Uint8Array[] }
+	| { t: "heads"; node: string; heads: Uint8Array[]; re?: boolean }
+	| { t: "want"; node: string; names: Uint8Array[] }
+	| { t: "commits"; node: string; sealed: Uint8Array[] }
+	| { t: "ephemeral"; node: string; commit: Uint8Array }
+	| { t: "ack"; node: string; names: Uint8Array[] }
 	// the topics the sender wants sent to it (all: every one), the whole list each time
 	| { t: "listen"; topics: string[]; all?: boolean }
 	// a short-lived message: bytes on a topic (presence.ts's channel's: a presence row on a room's),
@@ -44,6 +46,10 @@ const isBytes = (x: unknown, n?: number): x is Uint8Array =>
 const utf8 = new TextEncoder()
 export const isTopic = (x: unknown): x is string =>
 	typeof x === "string" && x.length > 0 && !x.includes("\0") && utf8.encode(x).length <= TOPIC_MAX
+// a node's id: well-formed text of at most ID_LEN bytes, and for now an ermine id
+export const isNode = (x: unknown): x is string =>
+	typeof x === "string" && x.isWellFormed() && utf8.encode(x).length <= ID_LEN &&
+	kind(x) !== undefined
 // a list of names: what is not a name in it is left out (the C side skips those)
 const names = (x: unknown) =>
 	Array.isArray(x) ? x.filter((n): n is Uint8Array => isBytes(n, NAME)) : undefined
@@ -73,7 +79,7 @@ export function decode(bytes: Uint8Array): Message | undefined {
 			if (!isTopic(o.topic) || !isBytes(o.bytes)) return
 			return { t: "say", topic: o.topic, bytes: o.bytes }
 	}
-	if (typeof o.t !== "string" || !isBytes(o.node) || kind(o.node) === undefined) return
+	if (typeof o.t !== "string" || !isNode(o.node)) return
 	const node = o.node
 	switch (o.t) {
 		case "heads": {
