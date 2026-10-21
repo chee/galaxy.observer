@@ -1,10 +1,14 @@
 // a commit signed by the device that made it, and the id it is stored under (extensions/subduction/
-// plan.org, Rewrite for the new shape, 2). sealed: {commit: its bytes, signature}, the signer's key
-// once (it is in the commit). signed: "ermine/v1/commit", the length of the document's id's UTF-8
-// (an unsigned varint), that UTF-8, the signature's varsig header, then the commit's name, so a seal
-// is good in its document only (nothing of the document goes in the seal: the document is where it came, a sedimentree),
-// and a header put on another signature is no longer good (the varsig spec recommends the header
-// be in what is signed). the signature is self-describing: a varsig header, then the raw signature.
+// plan.org, Rewrite for the new shape, 2). sealed: {id: the document's, commit: its bytes,
+// signature}, the signer's key once (it is in the commit). signed: "ermine/v1/commit", the length of
+// the document's id's UTF-8 (an unsigned varint), that UTF-8, the signature's varsig header, then the
+// commit's name, so a seal is good in its document only, and a header put on another signature is no
+// longer good (the varsig spec recommends the header be in what is signed). the signature is
+// self-describing: a varsig header, then the raw signature.
+// its stored id: BLAKE3 of the pieces "ermine/v1/stored", the id's UTF-8 and the commit's name (each
+// its length as an unsigned varint, then its bytes): what is signed, without the signature, so anyone
+// holding the commit and its id can work it out (a commit a pack vouches for has no seal of its own),
+// and one commit sealed for two documents has two.
 // the commit's signer is a multikey (commit.ts). Ed25519 through WebCrypto, which every browser, Deno and Node have: a key made here
 // never leaves as bytes; others by a verifier a caller adds
 // a message (a channel's bytes on a topic, littlesync's say) is sealed too, so its sender is the key
@@ -32,7 +36,7 @@ export type Verifier = {
 	verify(signature: Uint8Array, key: Uint8Array, message: Uint8Array): Promise<boolean>
 }
 
-export type Code = "shape" | "signature"
+export type Code = "shape" | "signature" | "id"
 
 export class SealError extends Error {
 	constructor(readonly code: Code, readonly reason?: string) {
@@ -43,7 +47,7 @@ export class SealError extends Error {
 // Ed25519: the multicodec code of ed25519-pub (0xed, varint 0xed 0x01), and the varsig (v1, the
 // version UCAN 1.0 uses) header: 0x34 0x01 (varsig, version 1), then EdDSA 0xed 0x01 with its curve
 // 0xed 0x01 (ed25519-pub) and its hash 0x13 (sha2-512; RFC 8032), then the payload encoding 0x5f
-// (byte-identical): what is signed is our own bytes ("ermine/v0/commit" then a name), no DAG-CBOR
+// (byte-identical): what is signed is our own bytes ("ermine/v1/commit", an id, then a name), no DAG-CBOR
 // (0x71) or other codec to render, so the one that says the payload is used as it is
 export const ED25519 = 0xed
 const ED25519_HEADER = Uint8Array.from([0x34, 0x01, 0xed, 0x01, 0xed, 0x01, 0x13, 0x5f])
@@ -72,10 +76,13 @@ const PKCS8 = Uint8Array.from([
 	0x20,
 ])
 
-// an id: any well-formed string, compared as its bytes, never normalised. its UTF-8; one with a lone
-// surrogate has none (TextEncoder would make it U+FFFD, and two ids one signature): shape
+// an id: any well-formed string without U+0000, compared as its bytes, never normalised. its UTF-8;
+// one with a lone surrogate has none (TextEncoder would make it U+FFFD, and two ids one signature),
+// and one with U+0000 is none either (C ids end at it): shape
 export function utf8(id: string): Uint8Array {
-	if (typeof id !== "string" || !id.isWellFormed()) throw new SealError("shape")
+	if (typeof id !== "string" || !id.isWellFormed() || id.includes("\0")) {
+		throw new SealError("shape")
+	}
 	return new TextEncoder().encode(id)
 }
 
@@ -256,15 +263,18 @@ export async function seal(
 	const signature = new Uint8Array(signer.header.length + raw.length)
 	signature.set(signer.header)
 	signature.set(raw, signer.header.length)
-	return cbor.encode({ commit: bytes, signature })
+	return cbor.encode({ id: doc, commit: bytes, signature })
 }
+
+// why a seal for another document is refused, beside the code id
+export const ELSEWHERE = "the seal is for another id"
 
 export type Unsealed = { commit: Commit; bytes: Uint8Array; name: Uint8Array; stored: Uint8Array }
 
-// the commit, checked: its shape, and its signer's signature for the document (its id), by
-// the verifier whose header the signature begins with: the built in, then more (a caller's). no
-// verifier for the header, or one whose key type is not the signer's: refused as a signature not
-// good, with the reason
+// the commit, checked: its shape, the id it is sealed for (the document's, else refused id, with
+// ELSEWHERE), and its signer's signature for the document, by the verifier whose header the
+// signature begins with: the built in, then more (a caller's). no verifier for the header, or one
+// whose key type is not the signer's: refused as a signature not good, with the reason
 export async function unseal(
 	sealed: Uint8Array,
 	doc: string,
@@ -278,17 +288,19 @@ export async function unseal(
 	}
 	if (x === null || typeof x !== "object" || Array.isArray(x)) throw new SealError("shape")
 	const o = x as Record<string, unknown>
-	if (Object.keys(o).length !== 2 || !(o.commit instanceof Uint8Array)) {
+	if (Object.keys(o).length !== 3 || !(o.commit instanceof Uint8Array)) {
 		throw new SealError("shape")
 	}
 	const signature = o.signature
-	if (!(signature instanceof Uint8Array)) throw new SealError("shape")
+	if (!(signature instanceof Uint8Array) || typeof o.id !== "string") throw new SealError("shape")
+	utf8(o.id), utf8(doc)
 	let commit: Commit
 	try {
 		commit = decode(o.commit)
 	} catch {
 		throw new SealError("shape")
 	}
+	if (o.id !== doc) throw new SealError("id", ELSEWHERE)
 	const name = nameOf(o.commit)
 	const v = [...verifiers, ...more].find((v) => startsWith(signature, v.header))
 	if (v === undefined) throw new SealError("signature", "no verifier for this signature header")
@@ -302,12 +314,31 @@ export async function unseal(
 	) {
 		throw new SealError("signature")
 	}
-	return { commit, bytes: o.commit, name, stored: stored(sealed) }
+	return { commit, bytes: o.commit, name, stored: stored(o.id, name) }
 }
 
-// the id a sealed commit is stored under: the BLAKE3 hash of its sealed bytes
-export function stored(sealed: Uint8Array): Uint8Array {
-	return blake3(sealed)
+const STORED = new TextEncoder().encode("ermine/v1/stored")
+
+// the id a commit is stored under in a document: of the id and the commit's name (above); or of a
+// sealed commit, the id and commit in it, unchecked. an id not well-formed, or bytes that are not a
+// seal: shape
+export function stored(id: string, name: Uint8Array): Uint8Array
+export function stored(sealed: Uint8Array): Uint8Array
+export function stored(x: string | Uint8Array, name?: Uint8Array): Uint8Array {
+	if (typeof x !== "string") {
+		let o: unknown
+		try {
+			o = cbor.decode(x)
+		} catch {
+			throw new SealError("shape")
+		}
+		const { id, commit } = (o ?? {}) as Record<string, unknown>
+		if (typeof id !== "string" || !(commit instanceof Uint8Array)) throw new SealError("shape")
+		return stored(id, nameOf(commit))
+	}
+	const all: number[] = []
+	for (const p of [STORED, utf8(x), name!]) all.push(...varint(p.length), ...p)
+	return blake3(Uint8Array.from(all))
 }
 
 // how many bytes of a signature are its varsig header: 0x34 0x01, an algorithm of those varsig names

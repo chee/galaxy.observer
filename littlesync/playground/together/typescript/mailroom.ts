@@ -37,10 +37,11 @@ export type Check = (
 // what a history refuses (lamport, patches, a parent) is the history's: history(doc).refused().
 // boundary: a fragment's members, boundary or checkpoints not what its head's walk makes them. id:
 // an envelope opened (a stack's: the id and what it carries) naming another id than the one followed
-// (the refusal of a second id for a tree held is replaced by the envelope's id check)
+// (the refusal of a second id for a tree held is replaced by the envelope's id check), or a seal for
+// another id (seal.ts)
 export type Code = "lock" | "shape" | "signature" | "stored" | "parents" | "boundary" | "id"
-// a refusal as it is noted: its code, and the text beside it (a lock's, or why an envelope's id is
-// not this one)
+// a refusal as it is noted: its code, and the text beside it (a lock's, or why an envelope's or a
+// seal's id is not this one)
 export type Refusal = { code: Code; why?: string }
 
 // what a device holds for others at most, each letting go of its oldest past it (heard again, it
@@ -122,7 +123,7 @@ export type Doc = {
 	elsewhere: Record<Layer, Map<string, boolean>>
 	// this device's own takes waiting on a parent, by name: sent once let in
 	own: Record<Layer, Set<string>>
-	// a taken-in seal's name to its stored ids: a signer may have signed twice
+	// a taken-in seal's name to its stored ids (one: a stored id is of the id and the name, seal.ts)
 	names: Map<string, string[]>
 	seen: Map<string, Seen>
 	// the snapshots fragments carried, packed, by their head's name, each checked (hint)

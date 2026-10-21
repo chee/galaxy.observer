@@ -1,13 +1,13 @@
-// ermine ids: a node's id that syncs, as bytes, its text, and its tree id (c/ids.h the same in C).
+// ermine ids: a node's id that syncs, as bytes, and its text (c/ids.h the same in C).
 //   fresh    00 10 + 16 random bytes (18)
 //   hashed   1e 10 + the first 16 bytes of BLAKE3(domain, inputs) (18)
 //   key      ed 01 + an Ed25519 key's 32 bytes (34): read, never made
 // the first two bytes (multiformats codes) say what format the rest is, never what the node is for.
 // anything else (another code, another length) is not an ermine id.
 // text: "ermine:" + the bytes in lowercase hex; nothing else is (no upper case, no "//").
-// tree id: the 32 bytes Subduction files a document under, the same for every kind: the first 16
-// bytes of BLAKE3("ermine/v1/tree", the id's bytes), then 16 zeros.
-// an id given to kind, bytes and tree: its bytes or its text
+// the tree id Subduction files a node under is the Subduction stack's own (treeOf), made from the id's
+// text, not here.
+// an id given to kind and bytes: its bytes or its text
 import { blake3 } from "@ermine/blake3"
 
 export type Id = Uint8Array
@@ -17,7 +17,6 @@ export type Kind = "fresh" | "hashed" | "key"
 export const domains = {
 	child: "ermine/v1/id/child",
 	outside: "ermine/v1/id/outside",
-	tree: "ermine/v1/tree",
 } as const
 
 const encoder = new TextEncoder()
@@ -100,12 +99,4 @@ export function parse(text: string): Id | undefined {
 	const b = new Uint8Array(h.length / 2)
 	for (let i = 0; i < b.length; i++) b[i] = parseInt(h.slice(2 * i, 2 * i + 2), 16)
 	return kind(b) === undefined ? undefined : b
-}
-
-export function tree(id: Id | string): Uint8Array | undefined {
-	const b = bytes(id)
-	if (b === undefined) return
-	const out = new Uint8Array(32)
-	out.set(digest(domains.tree, [b]).subarray(0, 16))
-	return out
 }

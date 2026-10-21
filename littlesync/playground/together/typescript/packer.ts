@@ -16,8 +16,10 @@
 //   patches: a string when one insert (no replaces) continuing the commit before's text; else the
 //     patches
 //   headers: runs of each signature's varsig header (seal.ts); empty: none read; null: vouched
+//   id: runs of the id each signed one is sealed for (seal.ts); null: vouched
 //   signatures: each signed one's bytes after its header, in order
-//   ids: each vouched one's stored id, in order
+//   ids: each vouched one's stored id, in order: only said (a reader that knows the id works it out
+//     from the id and the commit's name, seal.ts, and checks it: the subduction stack's door does)
 // ref: a place earlier in the pack, else a name. unpack takes any spelling that says the commits;
 // only pack's is canonical.
 // changing: each commit is named and signed alone; a pack only carries them. a commit field this pack
@@ -28,7 +30,8 @@
 //   not-a-pack    not CBOR, not a map, or an unknown key
 //   count        n not a whole number
 //   signatures   not a list of byte strings, one per commit with a header
-//   runs         a runs column not [value, how many ≥ 1] summing to n; headers not bytes
+//   runs         a runs column not [value, how many ≥ 1] summing to n; headers not bytes; an id
+//                not a string where there is a header, or not null where there is none
 //   differences  not bytes, a number cut short or over 8 bytes, bytes left over, past 2^53 - 1
 //   parents      not a list of n; or one not a list of refs, or null for the first
 //   patches      not a list of n; or one not a list or a string
@@ -83,6 +86,7 @@ const COLUMNS: ReadonlySet<string> = new Set([
 	"bytes",
 	"patches",
 	"headers",
+	"id",
 	"signatures",
 	"ids",
 ])
@@ -226,7 +230,7 @@ export function pack(members: readonly Member[]): Uint8Array {
 	for (const m of members) {
 		let bytes: Uint8Array, id: Uint8Array
 		if (m instanceof Uint8Array) {
-			const o = cbor.decode(m) as { commit: Uint8Array; signature: Uint8Array }
+			const o = cbor.decode(m) as { commit: Uint8Array }
 			bytes = o.commit, id = stored(m)
 			seals.push(m)
 		} else {
@@ -247,18 +251,21 @@ export function pack(members: readonly Member[]): Uint8Array {
 			hex(next.parents[0]) === names[i] && same(next.signer, c.signer)
 	})
 	const headers: (Uint8Array | null)[] = [], signatures: Uint8Array[] = [], kept: Uint8Array[] = []
+	const docs: (string | null)[] = []
 	commits.forEach((_, i) => {
 		if (vouched[i]) {
 			headers.push(null)
+			docs.push(null)
 			kept.push(ids[i])
 			return
 		}
 		const s = seals[i]
 		if (s === undefined) throw new Error("a commit not vouched for has no seal")
-		const signature = (cbor.decode(s) as { signature: Uint8Array }).signature
-		const h = headerLength(signature)
-		headers.push(signature.slice(0, h))
-		signatures.push(signature.slice(h))
+		const o = cbor.decode(s) as { id: string; signature: Uint8Array }
+		const h = headerLength(o.signature)
+		headers.push(o.signature.slice(0, h))
+		docs.push(o.id)
+		signatures.push(o.signature.slice(h))
 	})
 	// each commit's first place; a ref only ever to one before it, as unpack reads them in order
 	const place = new Map<string, number>()
@@ -298,6 +305,7 @@ export function pack(members: readonly Member[]): Uint8Array {
 		ids: kept,
 	}
 	columns.headers = runs(headers)
+	columns.id = runs(docs)
 	if (commits.some((c) => c.merge !== undefined)) {
 		columns.merge = runs(commits.map((c) => c.merge ?? null))
 	}
@@ -354,6 +362,10 @@ export function* each(bytes: Uint8Array): Generator<Unpacked, void, undefined> {
 	) throw new PackError("runs", "bytes")
 	if (!headers.every((h) => h instanceof Uint8Array || h === null)) {
 		throw new PackError("runs", "headers")
+	}
+	const docs = unruns(o.id, count, "id")
+	if (!docs.every((x, i) => headers[i] === null ? x === null : typeof x === "string")) {
+		throw new PackError("runs", "id")
 	}
 	const signed = headers.filter((h) => h !== null).length
 	if (signatures.length !== signed) throw new PackError("signatures")
@@ -438,7 +450,7 @@ export function* each(bytes: Uint8Array): Generator<Unpacked, void, undefined> {
 			const signature = new Uint8Array(header.length + tail.length)
 			signature.set(header)
 			signature.set(tail, header.length)
-			const sealed = cbor.encode({ commit: b, signature })
+			const sealed = cbor.encode({ id: docs[i] as string, commit: b, signature })
 			size += sealed.length
 			out = { commit: b, name, stored: stored(sealed), sealed }
 		}

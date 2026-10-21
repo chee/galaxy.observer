@@ -12,11 +12,21 @@
 // the envelope: what this stack stores and sends of a node, before the lock closes it: a map of the
 // node's id and what it carries. {id, sealed}: a loose commit, its seal; {id, commit}: an ephemeral
 // commit, never sealed; {id, run, snapshot?} (or {id, members, snapshot?}, as first written): a
-// fragment. relays see only the tree id. a receiver opens it with the id it follows (the one its tree
-// id was made from) and checks the envelope's id is that one, else refuses it (id) as it is taken
-// in (stored as it came: nothing is refused from inside Subduction's storage for it), so what is
-// opened is only what is followed. a tree not followed: what comes for it is stored as it came
-// (unnamed)
+// fragment. relays see only the tree id.
+//
+// the door: what Subduction is about to store under a name (a loose commit's stored id, a fragment's
+// head) is read first, the lock opened: the envelope's id must make this tree, a seal in it must be
+// for that id, and the stored id of that id and the commit's name (seal.ts) must be the name given (a
+// fragment: its head one of its members, each member's stored id its own); no signature is checked
+// for this. one that fails is not stored, and nothing is thrown (Subduction would drop the
+// connection, and a relay every follower with it): it is passed over, noted in the document's
+// status when the document is followed and the name not held. a tree not named yet (unnamed) gets
+// the same door, its id read from the envelope (the lock opened with no id); one the lock cannot
+// open so is stored as it came. a followed document's commit that passes the door is checked whole
+// (its signature, its lock, its shape) and refused, a throw, when it is not good; one already held,
+// passed over instead. Subduction 0.23 adds what it was given to its own tree in memory whether the
+// save stored it or not (a batch, or one passed over), and until it restarts it does not ask a peer
+// for that name again
 //
 // the tree id: the first 16 bytes of BLAKE3 of the pieces "ermine/v1/tree" and the id's UTF-8 (each
 // its length as an unsigned varint, then its bytes), then 16 zero bytes (galaxy's Keyhive rule)
@@ -49,8 +59,10 @@ import {
 import {
 	ED25519,
 	ed25519Key,
+	ELSEWHERE,
 	SealError,
 	type Signer,
+	stored,
 	utf8,
 	varint,
 } from "../../../typescript/seal.ts"
@@ -101,6 +113,9 @@ export type Wired = {
 
 const commitId = (b: Uint8Array) => new sd.CommitId(b)
 
+// what the door makes of a save: stored; passed over (not stored, nothing thrown); refused (a throw)
+type Door = "store" | "pass" | "refuse"
+
 const TREE = new TextEncoder().encode("ermine/v1/tree")
 
 // the tree id Subduction files a node under: made from its id (above)
@@ -122,14 +137,12 @@ export function envelope(id: string, carries: { [key: string]: cbor.Value }): Ui
 // why an envelope for another id is refused, beside the code id
 export const OTHER = "the envelope is for another id"
 
-// an envelope opened, for the document: what it carries (its id taken off), when its keys are id and
-// those of one of the forms (each a list of keys; a key ending "?" may be left out); a code: not
-// one (shape), or for another id (id)
-function opens(
-	d: Doc,
+// an envelope read: its id, and what it carries (its id taken off), when its keys are id and those
+// of one of the forms (each a list of keys; a key ending "?" may be left out); else shape
+function envelopeOf(
 	open: Uint8Array,
 	...forms: string[][]
-): { [key: string]: cbor.Value } | "shape" | "id" {
+): { id: string; carries: { [key: string]: cbor.Value } } | "shape" {
 	let x: cbor.Value
 	try {
 		x = cbor.decode(open)
@@ -147,9 +160,63 @@ function opens(
 		const need = f.filter((k) => !k.endsWith("?")), may = f.map((k) => k.replace(/\?$/, ""))
 		return need.every((k) => k in rest) && keys.every((k) => may.includes(k))
 	})
-	if (!fits) return "shape"
-	if (id !== d.id) return "id"
-	return rest
+	return fits ? { id, carries: rest } : "shape"
+}
+
+// an envelope opened, for the document: what it carries; not one (shape), or for another id (other:
+// refused id, with OTHER)
+function opens(
+	d: Doc,
+	open: Uint8Array,
+	...forms: string[][]
+): { [key: string]: cbor.Value } | "shape" | "other" {
+	const e = envelopeOf(open, ...forms)
+	if (e === "shape") return e
+	return e.id === d.id ? e.carries : "other"
+}
+
+// a seal's id and its commit's name, unchecked; undefined: not a seal's shape (unseal says so)
+function sealOf(sealed: Uint8Array): { id: string; name: Uint8Array } | undefined {
+	let o: cbor.Value
+	try {
+		o = cbor.decode(sealed)
+	} catch {
+		return
+	}
+	const { id, commit } = (o ?? {}) as { [key: string]: cbor.Value }
+	if (typeof id !== "string" || !(commit instanceof Uint8Array)) return
+	return { id, name: nameOf(commit) }
+}
+
+// a fragment's members as the door reads them, no signature checked: {id, run} unpacked, or {id,
+// members} each seal read; each with the stored id its pack, or its seal, says. a pack that is not
+// one, or a member that is no seal: shape
+function listed(o: { [key: string]: cbor.Value }): Unpacked[] | "shape" {
+	try {
+		if ("run" in o) return o.run instanceof Uint8Array ? [...unpacking(o.run)] : "shape"
+		if (!Array.isArray(o.members)) return "shape"
+		const out: Unpacked[] = []
+		for (const m of o.members) {
+			const s = m instanceof Uint8Array ? sealOf(m) : undefined
+			if (s === undefined || !(m instanceof Uint8Array)) return "shape"
+			const commit = (cbor.decode(m) as { commit: Uint8Array }).commit
+			out.push({ commit, name: s.name, stored: stored(s.id, s.name), sealed: m })
+		}
+		return out
+	} catch (e) {
+		if (e instanceof PackError || e instanceof SealError) return "shape"
+		throw e
+	}
+}
+
+// the door's check of a fragment's members, for the id: each one's stored id that id's and its
+// commit's name (a seal for another id: id; one a pack claims for a commit it vouches for: stored),
+// and the head, when given, one of them (stored); undefined: they pass
+function names(id: string, members: Unpacked[], head?: Uint8Array): Code | undefined {
+	for (const m of members) {
+		if (!same(stored(id, m.name), m.stored)) return m.sealed ? "id" : "stored"
+	}
+	if (head !== undefined && !members.some((m) => same(m.stored, head))) return "stored"
 }
 
 const same = (a: Uint8Array, b: Uint8Array) =>
@@ -244,47 +311,54 @@ export function createSubduction(
 
 	// ---- taking in
 
-	// a loose commit's first steps, the lock, the seal, its stored id: what the lock opened and its
-	// commit; "wait": the lock cannot open it yet; "id": an envelope for another id (not noted: the
-	// caller's); undefined: refused, noted
+	// this device's own loose commits being added, by stored id: their closed bytes
+	const owned = new Map<string, Uint8Array>()
+
+	// a loose commit's steps, the lock, the door (the envelope's id, the seal's, its stored id), then
+	// the seal: what the lock opened and its commit; "wait": the lock cannot open it yet; "passed": it
+	// failed the door (not the commit named); "refused": not good. noted (note): either, at the head
 	async function opening(
 		d: Doc,
 		h: string,
 		blob: Uint8Array,
-	): Promise<{ sealed: Uint8Array; it: Sealed } | "wait" | "id" | undefined> {
+		note = true,
+	): Promise<{ sealed: Uint8Array; it: Sealed } | "wait" | "passed" | "refused"> {
+		const no = (to: "passed" | "refused", code: Code, why?: string, name?: string) => {
+			if (note) refuse(d, h, code, name, why), settle(d)
+			return to
+		}
 		const open = await lock.open(d.bytes, blob)
 		if (!(open instanceof Uint8Array)) {
 			if ("wait" in open) return "wait"
-			refuse(d, h, "lock", undefined, open.refused), settle(d)
-			return
+			return no("refused", "lock", open.refused)
 		}
 		const got = opens(d, open, ["sealed"])
-		if (got === "id") return "id"
-		if (got === "shape" || !(got.sealed instanceof Uint8Array)) {
-			refuse(d, h, "shape"), settle(d)
-			return
+		if (got === "other") return no("passed", "id", OTHER)
+		if (got === "shape" || !(got.sealed instanceof Uint8Array)) return no("refused", "shape")
+		const sealed = got.sealed, peek = sealOf(sealed)
+		if (peek !== undefined) {
+			if (peek.id !== d.id) return no("passed", "id", ELSEWHERE)
+			if (hex(stored(d.id, peek.name)) !== h) {
+				return no("passed", "stored", undefined, hex(peek.name))
+			}
 		}
-		const sealed = got.sealed
 		let it: Sealed
 		try {
 			it = await opened(d, sealed)
 		} catch (e) {
 			if (!(e instanceof SealError)) throw e
-			refuse(d, h, e.code)
-			return
+			return no("refused", e.code, e.code === "id" ? e.reason : undefined)
 		}
-		if (hex(it.stored) !== h) return void (refuse(d, h, "stored", hex(it.name)), settle(d))
 		return { sealed, it }
 	}
 
-	// the steps of a loose commit, in order: the lock, the seal, its stored id, then pending
+	// the steps of a loose commit, in order: the lock, the door, the seal, then pending
 	async function commit(d: Doc, head: Uint8Array, parents: Uint8Array[], blob: Uint8Array) {
 		const h = hex(head)
 		if (d.seen.has(h)) return
 		of(d).locked.commits.delete(h)
 		const got = await opening(d, h, blob)
-		if (got === undefined) return
-		if (got === "id") return void (refuse(d, h, "id", undefined, OTHER), settle(d))
+		if (got === "passed" || got === "refused") return
 		if (got === "wait") {
 			clear(d, h)
 			note(limits.pending, of(d).locked.commits, h, {
@@ -303,56 +377,83 @@ export function createSubduction(
 		settle(d)
 	}
 
-	// what Subduction may store of a loose commit (its admission): one that opens to a seal under
-	// its stored id, or waits on the lock. what is refused is noted, as taking it in notes it, and
-	// told (moved) now, as a take tells. an envelope for another id is admitted, stored as it came,
-	// and refused (id) as it is taken in: a refusal here is a throw out of Subduction's storage, which
-	// drops the peer's connection
-	async function allows(d: Doc, head: Uint8Array, blob: Uint8Array): Promise<boolean> {
-		const h = hex(head)
-		if (d.seen.has(h) || await opening(d, h, blob) !== undefined) return true
+	// what Subduction may store of a loose commit in a followed document (its admission): "store", one
+	// that passes the door and opens to a good seal, or waits on the lock; "pass", one that fails the
+	// door (stored, it would stand under the name of a commit it isn't), or any not good under a name
+	// held already (that one is here); "refuse": the commit named, not good. what is passed over or
+	// refused is noted, as taking it in notes it, and told (moved) now, as a take tells (a name held:
+	// not noted). a refusal is a throw out of Subduction's storage, which drops the peer's connection
+	async function allows(d: Doc, head: Uint8Array, blob: Uint8Array): Promise<Door> {
+		const h = hex(head), mine = owned.get(h)
+		if (mine !== undefined && same(mine, blob)) return "store"
+		const here = d.seen.has(h)
+		const got = await opening(d, h, blob, !here)
+		if (got !== "passed" && got !== "refused") return "store"
+		if (here) return "pass"
 		moved(d)
-		return false
+		return got === "passed" ? "pass" : "refuse"
+	}
+
+	// the door for a tree not named yet (above): a loose commit's (fragment false) or a fragment's
+	// envelope, its id read from it. one the lock cannot open without its id: stored as it came
+	async function stranger(
+		tree: Uint8Array,
+		head: Uint8Array,
+		blob: Uint8Array,
+		fragment: boolean,
+	): Promise<Door> {
+		const open = await lock.open(new Uint8Array(0), blob)
+		if (!(open instanceof Uint8Array)) return "store"
+		const e = fragment
+			? envelopeOf(open, ["run", "snapshot?"], ["members", "snapshot?"])
+			: envelopeOf(open, ["sealed"])
+		if (e === "shape") return "pass"
+		let mine: boolean
+		try {
+			mine = same(treeOf(e.id), tree)
+		} catch (x) {
+			if (!(x instanceof SealError)) throw x
+			mine = false
+		}
+		if (!mine) return "pass"
+		if (fragment) {
+			const members = listed(e.carries)
+			return members !== "shape" && names(e.id, members, head) === undefined ? "store" : "pass"
+		}
+		const s = e.carries.sealed instanceof Uint8Array ? sealOf(e.carries.sealed) : undefined
+		return s !== undefined && s.id === e.id && same(stored(e.id, s.name), head) ? "store" : "pass"
 	}
 
 	// a fragment's envelope opened: {id, run: its members as a pack (packer.ts), snapshot?: packed
-	// tables}, or {id, members: [sealed…], snapshot?} as it was first written. each member unsealed as it is read,
-	// in order: the first that is not good ends it, and the fragment is refused whole with its code
-	// (a pack that is not one, or comes to too much: shape). one a pack's next vouches for is taken once
-	// that one's signature is good. the snapshot dropped when it does not read back
+	// tables}, or {id, members: [sealed…], snapshot?} as it was first written (a pack that is not one,
+	// or comes to too much: shape). first the door's check (names; head: one of them), then each
+	// member unsealed in order: the first that is not good ends it, and the fragment is refused whole
+	// with its code. one a pack's next vouches for is taken once that one's signature is good. the
+	// snapshot dropped when it does not read back
 	async function contents(
 		d: Doc,
 		open: Uint8Array,
-	): Promise<{ members: Member[]; snapshot?: Uint8Array } | Code> {
+		head?: Uint8Array,
+	): Promise<{ members: Member[]; snapshot?: Uint8Array } | Code | "other"> {
 		const o = opens(d, open, ["run", "snapshot?"], ["members", "snapshot?"])
 		if (typeof o === "string") return o
-		let items: Iterable<unknown>
-		// "run": the blob's key, as stored
-		if ("run" in o) {
-			if (!(o.run instanceof Uint8Array)) return "shape"
-			items = unpacking(o.run)
-		} else {
-			if (!Array.isArray(o.members)) return "shape"
-			items = o.members
-		}
+		const items = listed(o)
+		if (items === "shape") return items
+		const wrong = names(d.id, items, head)
+		if (wrong !== undefined) return wrong
 		const members: Member[] = [], vouched: Member[] = []
 		try {
 			for (const item of items) {
-				if (item instanceof Uint8Array) {
-					members.push({ sealed: item, it: await opened(d, item) })
-				} else if (item === null || typeof item !== "object") return "shape"
-				else if ((item as Unpacked).sealed === undefined) {
-					const u = item as Unpacked, c = decode(u.commit)
-					const it = { name: u.name, bytes: u.commit, stored: u.stored, ...c }
+				if (item.sealed === undefined) {
+					const c = decode(item.commit)
+					const it = { name: item.name, bytes: item.commit, stored: item.stored, ...c }
 					vouched.push({ it: { ...it, lamport: c.lamport, parents: c.parents } })
 				} else {
-					const sealed = (item as Unpacked).sealed!
-					const it = await opened(d, sealed)
-					members.push(...vouched.splice(0), { sealed, it })
+					const it = await opened(d, item.sealed)
+					members.push(...vouched.splice(0), { sealed: item.sealed, it })
 				}
 			}
 		} catch (e) {
-			if (e instanceof PackError) return "shape"
 			if (e instanceof SealError) return e.code
 			throw e
 		}
@@ -367,28 +468,22 @@ export function createSubduction(
 		return { members, snapshot }
 	}
 
-	// a fragment's contents, checked against what Subduction says of it: its head one of its members;
-	// its head of depth 1 or more, every other member of less depth, and reached from the head along
-	// parents among the members; its boundary of the head's depth or more and none of its members; its
-	// checkpoints (their first 12 bytes; given as Subduction keeps them, or none said) each member but
-	// the head with a depth; a member's stored id seen here under its own name. a head here whose walk
-	// can be made here: its members and boundary that walk's. a code: refused
+	// a fragment's contents, checked against what Subduction says of it: its head one of its members
+	// (the door's, in contents); its head of depth 1 or more, every other member of less depth, and
+	// reached from the head along parents among the members; its boundary of the head's depth or more
+	// and none of its members; its checkpoints (their first 12 bytes; given as Subduction keeps them,
+	// or none said) each member but the head with a depth. a head here whose walk can be made here:
+	// its members and boundary that walk's. a code: not taken
 	async function checked(
 		d: Doc,
 		head: Uint8Array,
 		boundary: Uint8Array[],
 		checkpoints: Uint8Array[] | undefined,
 		open: Uint8Array,
-	): Promise<{ members: Member[]; snapshot?: Uint8Array } | Code> {
-		const got = await contents(d, open)
+	): Promise<{ members: Member[]; snapshot?: Uint8Array } | Code | "other"> {
+		const got = await contents(d, open, head)
 		if (typeof got === "string") return got
 		const h = hex(head), top = depth(head)
-		if (!got.members.some((m) => hex(m.it.stored) === h)) return "stored"
-		// a stored id here already is under the name it has here (a vouched one's is only said)
-		for (const m of got.members) {
-			const was = d.seen.get(hex(m.it.stored))
-			if (was !== undefined && was.name !== hex(m.it.name)) return "stored"
-		}
 		const ids = new Set(got.members.map((m) => hex(m.it.stored)))
 		if (top === 0 || reach(head, got.members).size !== ids.size) return "boundary"
 		for (const m of got.members) {
@@ -439,31 +534,37 @@ export function createSubduction(
 		return reached
 	}
 
-	// what Subduction may store of a fragment (its admission): one that opens and is checked, or
-	// waits on the lock. one whose head is not here yet is noted refused whole; a refusal is told
-	// (moved) now, as a take tells
+	// what Subduction may store of a fragment in a followed document (its admission), as allows: one
+	// that opens and is checked, or waits on the lock, stored; one that fails the door (an envelope
+	// for another id, a member's stored id not its own, the head none of them) passed over; one not
+	// good otherwise refused. one whose head is not here yet is noted refused whole, and told (moved)
+	// now, as a take tells
 	async function allowsFragment(
 		d: Doc,
 		head: Uint8Array,
 		boundary: Uint8Array[],
 		checkpoints: Uint8Array[] | undefined,
 		blob: Uint8Array,
-	): Promise<boolean> {
+	): Promise<Door> {
 		const h = hex(head)
 		const open = await lock.open(d.bytes, blob)
 		if (!(open instanceof Uint8Array)) {
-			if ("wait" in open) return true
+			if ("wait" in open) return "store"
 			if (!d.seen.has(h)) broke(d, h, "lock", open.refused)
 			moved(d)
-			return false
+			return "refuse"
 		}
 		const got = await checked(d, head, boundary, checkpoints, open)
-		// another id's: admitted, refused as it is taken in (allows)
-		if (typeof got !== "string" || got === "id") return true
-		if (!d.seen.has(h)) broke(d, h, got)
+		if (typeof got !== "string") return "store"
+		if (!d.seen.has(h)) broke(d, h, ...noted(got))
 		moved(d)
-		return false
+		return got === "other" || got === "id" || got === "stored" ? "pass" : "refuse"
 	}
+
+	// a fragment's refusal as it is noted: another id's envelope (other) is id, with OTHER; a member
+	// sealed for another id, id with ELSEWHERE
+	const noted = (got: Code | "other"): [Code, string?] =>
+		got === "other" ? ["id", OTHER] : [got, got === "id" ? ELSEWHERE : undefined]
 
 	// a fragment refused whole, by head, with the text a lock refused it with
 	function broke(d: Doc, h: string, code: Code, why?: string) {
@@ -499,7 +600,7 @@ export function createSubduction(
 		}
 		const got = await checked(d, head, boundary, checkpoints, open)
 		if (typeof got === "string") {
-			if (!here) broke(d, h, got, got === "id" ? OTHER : undefined)
+			if (!here) broke(d, h, ...noted(got))
 			return
 		}
 		of(d).broken.delete(h)
@@ -522,9 +623,9 @@ export function createSubduction(
 			return
 		}
 		const got = opens(d, open, ["commit"])
-		if (typeof got === "string" || !(got.commit instanceof Uint8Array)) {
-			const code = typeof got === "string" ? got : "shape"
-			return mailroom.unheard(d, nameOf(blob), code, code === "id" ? OTHER : undefined)
+		if (got === "other") return mailroom.unheard(d, nameOf(blob), "id", OTHER)
+		if (got === "shape" || !(got.commit instanceof Uint8Array)) {
+			return mailroom.unheard(d, nameOf(blob), "shape")
 		}
 		mailroom.hear(d, got.commit, ed25519Key(from))
 	}
@@ -712,8 +813,14 @@ export function createSubduction(
 		const { sealed, stored: s } = await mailroom.sealed(d, kept)
 		const blob = await lock.close(d.bytes, kept.name, kept.parents, envelope(d.id, { sealed }))
 		const parents = await mailroom.handed(d, kept, sealed, s)
-		const r = await sub.addCommit(of(d).tree, commitId(s), parents.map(commitId), blob)
-		if (r) await run(() => building(d, [s]))
+		// its own bytes pass the door unopened (an own commit is never opened)
+		owned.set(hex(s), blob)
+		try {
+			const r = await sub.addCommit(of(d).tree, commitId(s), parents.map(commitId), blob)
+			if (r) await run(() => building(d, [s]))
+		} finally {
+			owned.delete(hex(s))
+		}
 	}
 
 	// an ephemeral commit of this device's: closed, published, as parts when over LIMIT
@@ -739,18 +846,18 @@ export function createSubduction(
 	const checkpointsOf = (f: sd.Fragment) =>
 		(f.checkpoints as unknown as { toBytes(): Uint8Array }[]).map((c) => c.toBytes())
 
-	// a save for a tree whose id is not named yet: stored as it came, unchecked (its seals can't be
-	// checked without the id), the tree listed; taken in, each checked, when its document is followed.
-	// refusing it would leave Subduction never sending it again on that connection
+	// a save for a tree whose id is not named yet, past the door (stranger): stored, the tree listed;
+	// taken in, each checked whole, when its document is followed. nothing is refused (a throw would
+	// leave Subduction never sending it again on that connection)
 	async function unnamed<T>(tree: sd.SedimentreeId, put: () => Promise<T>): Promise<T> {
 		const r = await put()
 		held.add(hex(tree.toBytes()))
 		return r
 	}
 
-	// Subduction's storage, wrapped: for a tree whose id is named, it stores only what ermine admits
-	// (allows, allowsFragment), and what it stores is then taken in. one not admitted is refused (a
-	// throw), noted as refused. for a tree whose id is not named: unnamed
+	// Subduction's storage, wrapped: it stores only what passes the door (allows, allowsFragment; a
+	// tree not named yet, stranger), and what it stores of a followed document is then taken in. one
+	// passed over is not stored, and the save returns as if it were; one refused is a throw
 	const storage = new Proxy(memory as sd.MemoryStorage, {
 		get(target, key) {
 			const f = (target as unknown as Record<string | symbol, unknown>)[key]
@@ -765,11 +872,12 @@ export function createSubduction(
 					const parents = signed.payload.parents
 					const d = document(tree.toBytes())
 					if (d === undefined) {
+						if (await stranger(tree.toBytes(), id.toBytes(), blob, false) === "pass") return
 						return await unnamed(tree, () => target.saveCommit(tree, id, signed, blob))
 					}
-					if (!(await allows(d, id.toBytes(), blob))) {
-						throw new Error("not admitted: refused by ermine")
-					}
+					const door = await allows(d, id.toBytes(), blob)
+					if (door === "pass") return
+					if (door === "refuse") throw new Error("not admitted: refused by ermine")
 					await target.saveCommit(tree, id, signed, blob)
 					later(() => save(tree, [{ id, parents, blob }], []))
 				}
@@ -784,11 +892,12 @@ export function createSubduction(
 					const { boundary } = signed.payload, checkpoints = checkpointsOf(signed.payload)
 					const d = document(tree.toBytes()), b = boundary.map((x) => x.toBytes())
 					if (d === undefined) {
+						if (await stranger(tree.toBytes(), head.toBytes(), blob, true) === "pass") return
 						return await unnamed(tree, () => target.saveFragment(tree, head, signed, blob))
 					}
-					if (!(await allowsFragment(d, head.toBytes(), b, checkpoints, blob))) {
-						throw new Error("not admitted: refused by ermine")
-					}
+					const door = await allowsFragment(d, head.toBytes(), b, checkpoints, blob)
+					if (door === "pass") return
+					if (door === "refuse") throw new Error("not admitted: refused by ermine")
 					await target.saveFragment(tree, head, signed, blob)
 					later(() => save(tree, [], [{ head, boundary, checkpoints, blob }]))
 				}
@@ -808,24 +917,28 @@ export function createSubduction(
 					}[],
 				) => {
 					const d = document(tree.toBytes())
+					// a batch is never refused: what does not get in is left out
+					const okCommits: typeof commits = [], okFragments: typeof fragments = []
+					for (const c of commits) {
+						const id = c.commitId.toBytes()
+						const door = d === undefined
+							? await stranger(tree.toBytes(), id, c.blob, false)
+							: await allows(d, id, c.blob)
+						if (door === "store") okCommits.push(c)
+					}
+					for (const f of fragments) {
+						const p = f.signedFragment.payload, head = f.fragmentHead.toBytes()
+						const b = p.boundary.map((x) => x.toBytes())
+						const door = d === undefined
+							? await stranger(tree.toBytes(), head, f.blob, true)
+							: await allowsFragment(d, head, b, checkpointsOf(p), f.blob)
+						if (door === "store") okFragments.push(f)
+					}
 					if (d === undefined) {
 						return await unnamed(
 							tree,
-							() => target.saveBatchAll(tree, commits as never, fragments as never),
+							() => target.saveBatchAll(tree, okCommits as never, okFragments as never),
 						)
-					}
-					const okCommits = [], okFragments = []
-					for (const c of commits) {
-						if (await allows(d, c.commitId.toBytes(), c.blob)) okCommits.push(c)
-					}
-					for (const f of fragments) {
-						const p = f.signedFragment.payload
-						const b = p.boundary.map((x) => x.toBytes())
-						if (
-							await allowsFragment(d, f.fragmentHead.toBytes(), b, checkpointsOf(p), f.blob)
-						) {
-							okFragments.push(f)
-						}
 					}
 					const cs = okCommits.map((c) => ({
 						id: c.commitId,
