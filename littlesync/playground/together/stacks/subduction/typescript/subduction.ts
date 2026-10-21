@@ -18,15 +18,16 @@
 // head) is read first, the lock opened: the envelope's id must make this tree, a seal in it must be
 // for that id, and the stored id of that id and the commit's name (seal.ts) must be the name given (a
 // fragment: its head one of its members, each member's stored id its own, its members and boundary
-// closed, as closure says); no signature is checked for this. one that fails is not stored, and
-// nothing is thrown (Subduction would drop the connection, and a relay every follower with it): it
-// is passed over, noted in the document's status when the document is followed and the name not
-// held. a tree not named yet (unnamed) gets the same door, its id read from the envelope (the lock
-// opened with no id); one the lock cannot open so is stored as it came. a followed document's commit
-// that passes the door is checked whole (its signature, its lock, its shape) and refused, a throw,
-// when it is not good; one already held, passed over instead. Subduction 0.23 adds what it was given
-// to its own tree in memory whether the save stored it or not (a batch, or one passed over), and
-// until it restarts it does not ask a peer for that name again
+// closed, as closure says); no signature is checked for this. one that fails is passed over: not
+// stored, noted in the document's status when the document is followed and the name not held. a
+// tree not named yet (unnamed) gets the same door, its id read from the envelope (the lock opened
+// with no id); one the lock cannot open so is stored as it came. a followed document's commit that
+// passes the door is checked whole (its signature, its lock, its shape) and refused when it is not
+// good: not stored, noted the same (one already held: not noted). the storage never throws
+// (Subduction would drop the connection, and a relay every follower with it): every save it does
+// not store returns as if it had. Subduction 0.23 adds what it was given to its own tree in memory
+// whether the save stored it or not, pushes it to a peer subscribed, and until it restarts does not
+// ask a peer for that name again
 //
 // the tree id: the first 16 bytes of BLAKE3 of the pieces "ermine/v1/tree" and the id's UTF-8 (each
 // its length as an unsigned varint, then its bytes), then 16 zero bytes (galaxy's Keyhive rule)
@@ -113,8 +114,8 @@ export type Wired = {
 
 const commitId = (b: Uint8Array) => new sd.CommitId(b)
 
-// what the door makes of a save: stored; passed over (not stored, nothing thrown); refused (a throw)
-type Door = "store" | "pass" | "refuse"
+// what the door makes of a save: stored; or not stored (passed over or refused), nothing thrown
+type Door = "store" | "pass"
 
 const TREE = new TextEncoder().encode("ermine/v1/tree")
 
@@ -411,20 +412,18 @@ export function createSubduction(
 	}
 
 	// what Subduction may store of a loose commit in a followed document (its admission): "store", one
-	// that passes the door and opens to a good seal, or waits on the lock; "pass", one that fails the
-	// door (stored, it would stand under the name of a commit it isn't), or any not good under a name
-	// held already (that one is here); "refuse": the commit named, not good. what is passed over or
-	// refused is noted, as taking it in notes it, and told (moved) now, as a take tells (a name held:
-	// not noted). a refusal is a throw out of Subduction's storage, which drops the peer's connection
+	// that passes the door and opens to a good seal, or waits on the lock; "pass", any other: one that
+	// fails the door (stored, it would stand under the name of a commit it isn't), or is not good (the
+	// lock refusing it too). what is passed over or refused is noted with its code, as taking it in
+	// notes it, and told (moved) now, as a take tells (a name held: not noted, that one is here)
 	async function allows(d: Doc, head: Uint8Array, blob: Uint8Array): Promise<Door> {
 		const h = hex(head), mine = owned.get(h)
 		if (mine !== undefined && same(mine, blob)) return "store"
 		const here = d.seen.has(h)
 		const got = await opening(d, h, blob, !here)
 		if (got !== "passed" && got !== "refused") return "store"
-		if (here) return "pass"
-		moved(d)
-		return got === "passed" ? "pass" : "refuse"
+		if (!here) moved(d)
+		return "pass"
 	}
 
 	// the door for a tree not named yet (above): a loose commit's or a fragment's envelope (a fragment's:
@@ -570,10 +569,11 @@ export function createSubduction(
 	}
 
 	// what Subduction may store of a fragment in a followed document (its admission), as allows: one
-	// that opens and is checked, or waits on the lock, stored; one that fails the door (an envelope
-	// for another id, a member's stored id not its own, the head none of them, a member's parent left
-	// out or a boundary not the members' own) passed over; one not good otherwise refused. one whose
-	// head is not here yet is noted refused whole, and told (moved) now, as a take tells
+	// that opens and is checked, or waits on the lock, stored; any other not: one that fails the door
+	// (an envelope for another id, a member's stored id not its own, the head none of them, a member's
+	// parent left out or a boundary not the members' own) passed over, one not good otherwise (the
+	// lock refusing it too) refused. one whose head is not here yet is noted refused whole with its
+	// code, and told (moved) now, as a take tells
 	async function allowsFragment(
 		d: Doc,
 		head: Uint8Array,
@@ -587,14 +587,13 @@ export function createSubduction(
 			if ("wait" in open) return "store"
 			if (!d.seen.has(h)) broke(d, h, "lock", open.refused)
 			moved(d)
-			return "refuse"
+			return "pass"
 		}
 		const got = await checked(d, head, boundary, checkpoints, open)
 		if (typeof got !== "string") return "store"
 		if (!d.seen.has(h)) broke(d, h, ...noted(got))
 		moved(d)
-		const door = got === "other" || got === "id" || got === "stored" || got === "closure"
-		return door ? "pass" : "refuse"
+		return "pass"
 	}
 
 	// a fragment's refusal as it is noted: another id's envelope (other) is id, with OTHER; a member
@@ -887,8 +886,7 @@ export function createSubduction(
 		(f.checkpoints as unknown as { toBytes(): Uint8Array }[]).map((c) => c.toBytes())
 
 	// a save for a tree whose id is not named yet, past the door (stranger): stored, the tree listed;
-	// taken in, each checked whole, when its document is followed. nothing is refused (a throw would
-	// leave Subduction never sending it again on that connection)
+	// taken in, each checked whole, when its document is followed
 	async function unnamed<T>(tree: sd.SedimentreeId, put: () => Promise<T>): Promise<T> {
 		const r = await put()
 		held.add(hex(tree.toBytes()))
@@ -897,7 +895,7 @@ export function createSubduction(
 
 	// Subduction's storage, wrapped: it stores only what passes the door (allows, allowsFragment; a
 	// tree not named yet, stranger), and what it stores of a followed document is then taken in. one
-	// passed over is not stored, and the save returns as if it were; one refused is a throw
+	// passed over or refused is not stored, and the save returns as if it were: never a throw
 	const storage = new Proxy(memory as sd.MemoryStorage, {
 		get(target, key) {
 			const f = (target as unknown as Record<string | symbol, unknown>)[key]
@@ -915,9 +913,7 @@ export function createSubduction(
 						if (await stranger(tree.toBytes(), id.toBytes(), blob) === "pass") return
 						return await unnamed(tree, () => target.saveCommit(tree, id, signed, blob))
 					}
-					const door = await allows(d, id.toBytes(), blob)
-					if (door === "pass") return
-					if (door === "refuse") throw new Error("not admitted: refused by ermine")
+					if (await allows(d, id.toBytes(), blob) === "pass") return
 					await target.saveCommit(tree, id, signed, blob)
 					later(() => save(tree, [{ id, parents, blob }], []))
 				}
@@ -935,9 +931,7 @@ export function createSubduction(
 						if (await stranger(tree.toBytes(), head.toBytes(), blob, b) === "pass") return
 						return await unnamed(tree, () => target.saveFragment(tree, head, signed, blob))
 					}
-					const door = await allowsFragment(d, head.toBytes(), b, checkpoints, blob)
-					if (door === "pass") return
-					if (door === "refuse") throw new Error("not admitted: refused by ermine")
+					if (await allowsFragment(d, head.toBytes(), b, checkpoints, blob) === "pass") return
 					await target.saveFragment(tree, head, signed, blob)
 					later(() => save(tree, [], [{ head, boundary, checkpoints, blob }]))
 				}
@@ -957,7 +951,7 @@ export function createSubduction(
 					}[],
 				) => {
 					const d = document(tree.toBytes())
-					// a batch is never refused: what does not get in is left out
+					// what does not get in is left out
 					const okCommits: typeof commits = [], okFragments: typeof fragments = []
 					for (const c of commits) {
 						const id = c.commitId.toBytes()
@@ -1135,16 +1129,6 @@ export function createSubduction(
 		timers.add(t)
 	}
 
-	// what a put gave, or nothing when the storage did not admit it (noted refused as it was)
-	async function admitted<T>(p: Promise<T>): Promise<T | undefined> {
-		try {
-			return await p
-		} catch (e) {
-			if (String(e).includes("not admitted")) return undefined
-			throw e
-		}
-	}
-
 	const device: Wired = {
 		ready: () => loaded,
 		async connect(transport, initiator) {
@@ -1271,9 +1255,7 @@ export function createSubduction(
 		inside: {
 			async put(doc: string, head: Uint8Array, parents: Uint8Array[], blob: Uint8Array) {
 				const d = named(doc)
-				const r = await admitted(
-					sub.addCommit(of(d).tree, commitId(head), parents.map(commitId), blob),
-				)
+				const r = await sub.addCommit(of(d).tree, commitId(head), parents.map(commitId), blob)
 				if (r) await run(() => building(d))
 			},
 			async putFragment(
@@ -1284,13 +1266,13 @@ export function createSubduction(
 				blob: Uint8Array,
 			) {
 				const d = named(doc)
-				await admitted(sub.addFragment(
+				await sub.addFragment(
 					of(d).tree,
 					commitId(head),
 					boundary.map(commitId),
 					checkpoints.map(commitId),
 					blob,
-				))
+				)
 				await run(() => building(d))
 			},
 		},
