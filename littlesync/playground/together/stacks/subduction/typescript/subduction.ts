@@ -17,16 +17,16 @@
 // the door: what Subduction is about to store under a name (a loose commit's stored id, a fragment's
 // head) is read first, the lock opened: the envelope's id must make this tree, a seal in it must be
 // for that id, and the stored id of that id and the commit's name (seal.ts) must be the name given (a
-// fragment: its head one of its members, each member's stored id its own); no signature is checked
-// for this. one that fails is not stored, and nothing is thrown (Subduction would drop the
-// connection, and a relay every follower with it): it is passed over, noted in the document's
-// status when the document is followed and the name not held. a tree not named yet (unnamed) gets
-// the same door, its id read from the envelope (the lock opened with no id); one the lock cannot
-// open so is stored as it came. a followed document's commit that passes the door is checked whole
-// (its signature, its lock, its shape) and refused, a throw, when it is not good; one already held,
-// passed over instead. Subduction 0.23 adds what it was given to its own tree in memory whether the
-// save stored it or not (a batch, or one passed over), and until it restarts it does not ask a peer
-// for that name again
+// fragment: its head one of its members, each member's stored id its own, its members and boundary
+// closed, as closure says); no signature is checked for this. one that fails is not stored, and
+// nothing is thrown (Subduction would drop the connection, and a relay every follower with it): it
+// is passed over, noted in the document's status when the document is followed and the name not
+// held. a tree not named yet (unnamed) gets the same door, its id read from the envelope (the lock
+// opened with no id); one the lock cannot open so is stored as it came. a followed document's commit
+// that passes the door is checked whole (its signature, its lock, its shape) and refused, a throw,
+// when it is not good; one already held, passed over instead. Subduction 0.23 adds what it was given
+// to its own tree in memory whether the save stored it or not (a batch, or one passed over), and
+// until it restarts it does not ask a peer for that name again
 //
 // the tree id: the first 16 bytes of BLAKE3 of the pieces "ermine/v1/tree" and the id's UTF-8 (each
 // its length as an unsigned varint, then its bytes), then 16 zero bytes (galaxy's Keyhive rule)
@@ -41,7 +41,7 @@ import {
 import { hex, unhex } from "../../../typescript/hex.ts"
 import { blake3 } from "npm:@noble/hashes@1.8.0/blake3"
 import * as cbor from "@ermine/encoding/cbor"
-import { decode, name as nameOf, splitKey } from "@ermine/encoding/commit"
+import { CommitError, decode, name as nameOf, splitKey } from "@ermine/encoding/commit"
 import { build, depth, type Fragment, FragmentError, walk } from "./fragment.ts"
 import type { Kept } from "../../../typescript/history.ts"
 import {
@@ -219,6 +219,39 @@ function names(id: string, members: Unpacked[], head?: Uint8Array): Code | undef
 	if (head !== undefined && !members.some((m) => same(m.stored, head))) return "stored"
 }
 
+// the door's check of a fragment's closure, for the id: each member's parent a member, or one of the
+// head's depth or more and in the boundary (the walk stops there); one of less depth not a member was
+// taken out as a member of a fragment below (Subduction's build does so), so only with a boundary.
+// none such: the boundary is those parents, no more. a commit that does not decode is the seals'
+// check's. closure: it fails; undefined: it passes
+function closure(
+	id: string,
+	members: Unpacked[],
+	head: Uint8Array,
+	boundary: Uint8Array[],
+): "closure" | undefined {
+	const top = depth(head), ids = new Set(members.map((m) => hex(m.stored)))
+	const given = new Set(boundary.map(hex)), reached = new Set<string>()
+	let below = false
+	for (const m of members) {
+		let parents: Uint8Array[]
+		try {
+			parents = decode(m.commit).parents
+		} catch (e) {
+			if (e instanceof CommitError) return
+			throw e
+		}
+		for (const p of parents) {
+			const s = stored(id, p), k = hex(s)
+			if (ids.has(k)) continue
+			if (depth(s) < top) below = true
+			else if (given.has(k)) reached.add(k)
+			else return "closure"
+		}
+	}
+	if (below ? given.size === 0 : reached.size !== given.size) return "closure"
+}
+
 const same = (a: Uint8Array, b: Uint8Array) =>
 	a.length === b.length && a.every((x, i) => x === b[i])
 
@@ -394,17 +427,18 @@ export function createSubduction(
 		return got === "passed" ? "pass" : "refuse"
 	}
 
-	// the door for a tree not named yet (above): a loose commit's (fragment false) or a fragment's
-	// envelope, its id read from it. one the lock cannot open without its id: stored as it came
+	// the door for a tree not named yet (above): a loose commit's or a fragment's envelope (a fragment's:
+	// its boundary given), its id read from it. one the lock cannot open without its id: stored as it
+	// came
 	async function stranger(
 		tree: Uint8Array,
 		head: Uint8Array,
 		blob: Uint8Array,
-		fragment: boolean,
+		boundary?: Uint8Array[],
 	): Promise<Door> {
 		const open = await lock.open(new Uint8Array(0), blob)
 		if (!(open instanceof Uint8Array)) return "store"
-		const e = fragment
+		const e = boundary
 			? envelopeOf(open, ["run", "snapshot?"], ["members", "snapshot?"])
 			: envelopeOf(open, ["sealed"])
 		if (e === "shape") return "pass"
@@ -416,9 +450,10 @@ export function createSubduction(
 			mine = false
 		}
 		if (!mine) return "pass"
-		if (fragment) {
+		if (boundary) {
 			const members = listed(e.carries)
-			return members !== "shape" && names(e.id, members, head) === undefined ? "store" : "pass"
+			if (members === "shape" || names(e.id, members, head) !== undefined) return "pass"
+			return closure(e.id, members, head, boundary) === undefined ? "store" : "pass"
 		}
 		const s = e.carries.sealed instanceof Uint8Array ? sealOf(e.carries.sealed) : undefined
 		return s !== undefined && s.id === e.id && same(stored(e.id, s.name), head) ? "store" : "pass"
@@ -426,20 +461,22 @@ export function createSubduction(
 
 	// a fragment's envelope opened: {id, run: its members as a pack (packer.ts), snapshot?: packed
 	// tables}, or {id, members: [sealed…], snapshot?} as it was first written (a pack that is not one,
-	// or comes to too much: shape). first the door's check (names; head: one of them), then each
-	// member unsealed in order: the first that is not good ends it, and the fragment is refused whole
-	// with its code. one a pack's next vouches for is taken once that one's signature is good. the
-	// snapshot dropped when it does not read back
+	// or comes to too much: shape). first the door's checks (names; head: one of them; with the
+	// boundary, closure), then each member unsealed in order: the first that is not good ends it, and
+	// the fragment is refused whole with its code. one a pack's next vouches for is taken once that
+	// one's signature is good. the snapshot dropped when it does not read back
 	async function contents(
 		d: Doc,
 		open: Uint8Array,
 		head?: Uint8Array,
-	): Promise<{ members: Member[]; snapshot?: Uint8Array } | Code | "other"> {
+		boundary?: Uint8Array[],
+	): Promise<{ members: Member[]; snapshot?: Uint8Array } | Code | "other" | "closure"> {
 		const o = opens(d, open, ["run", "snapshot?"], ["members", "snapshot?"])
 		if (typeof o === "string") return o
 		const items = listed(o)
 		if (items === "shape") return items
-		const wrong = names(d.id, items, head)
+		const wrong = names(d.id, items, head) ??
+			(head && boundary ? closure(d.id, items, head, boundary) : undefined)
 		if (wrong !== undefined) return wrong
 		const members: Member[] = [], vouched: Member[] = []
 		try {
@@ -468,20 +505,20 @@ export function createSubduction(
 		return { members, snapshot }
 	}
 
-	// a fragment's contents, checked against what Subduction says of it: its head one of its members
-	// (the door's, in contents); its head of depth 1 or more, every other member of less depth, and
-	// reached from the head along parents among the members; its boundary of the head's depth or more
-	// and none of its members; its checkpoints (their first 12 bytes; given as Subduction keeps them,
-	// or none said) each member but the head with a depth. a head here whose walk can be made here:
-	// its members and boundary that walk's. a code: not taken
+	// a fragment's contents, checked against what Subduction says of it: its head one of its members,
+	// and its members and boundary closed (the door's, in contents); its head of depth 1 or more,
+	// every other member of less depth, and reached from the head along parents among the members; its
+	// boundary of the head's depth or more and none of its members; its checkpoints (their first 12
+	// bytes; given as Subduction keeps them, or none said) each member but the head with a depth. a
+	// head here whose walk can be made here: its members and boundary that walk's. a code: not taken
 	async function checked(
 		d: Doc,
 		head: Uint8Array,
 		boundary: Uint8Array[],
 		checkpoints: Uint8Array[] | undefined,
 		open: Uint8Array,
-	): Promise<{ members: Member[]; snapshot?: Uint8Array } | Code | "other"> {
-		const got = await contents(d, open, head)
+	): Promise<{ members: Member[]; snapshot?: Uint8Array } | Code | "other" | "closure"> {
+		const got = await contents(d, open, head, boundary)
 		if (typeof got === "string") return got
 		const h = hex(head), top = depth(head)
 		const ids = new Set(got.members.map((m) => hex(m.it.stored)))
@@ -536,9 +573,9 @@ export function createSubduction(
 
 	// what Subduction may store of a fragment in a followed document (its admission), as allows: one
 	// that opens and is checked, or waits on the lock, stored; one that fails the door (an envelope
-	// for another id, a member's stored id not its own, the head none of them) passed over; one not
-	// good otherwise refused. one whose head is not here yet is noted refused whole, and told (moved)
-	// now, as a take tells
+	// for another id, a member's stored id not its own, the head none of them, a member's parent left
+	// out or a boundary not the members' own) passed over; one not good otherwise refused. one whose
+	// head is not here yet is noted refused whole, and told (moved) now, as a take tells
 	async function allowsFragment(
 		d: Doc,
 		head: Uint8Array,
@@ -558,13 +595,18 @@ export function createSubduction(
 		if (typeof got !== "string") return "store"
 		if (!d.seen.has(h)) broke(d, h, ...noted(got))
 		moved(d)
-		return got === "other" || got === "id" || got === "stored" ? "pass" : "refuse"
+		const door = got === "other" || got === "id" || got === "stored" || got === "closure"
+		return door ? "pass" : "refuse"
 	}
 
 	// a fragment's refusal as it is noted: another id's envelope (other) is id, with OTHER; a member
-	// sealed for another id, id with ELSEWHERE
-	const noted = (got: Code | "other"): [Code, string?] =>
-		got === "other" ? ["id", OTHER] : [got, got === "id" ? ELSEWHERE : undefined]
+	// sealed for another id, id with ELSEWHERE; one not closed (closure), boundary
+	const noted = (got: Code | "other" | "closure"): [Code, string?] =>
+		got === "other"
+			? ["id", OTHER]
+			: got === "closure"
+			? ["boundary"]
+			: [got, got === "id" ? ELSEWHERE : undefined]
 
 	// a fragment refused whole, by head, with the text a lock refused it with
 	function broke(d: Doc, h: string, code: Code, why?: string) {
@@ -872,7 +914,7 @@ export function createSubduction(
 					const parents = signed.payload.parents
 					const d = document(tree.toBytes())
 					if (d === undefined) {
-						if (await stranger(tree.toBytes(), id.toBytes(), blob, false) === "pass") return
+						if (await stranger(tree.toBytes(), id.toBytes(), blob) === "pass") return
 						return await unnamed(tree, () => target.saveCommit(tree, id, signed, blob))
 					}
 					const door = await allows(d, id.toBytes(), blob)
@@ -892,7 +934,7 @@ export function createSubduction(
 					const { boundary } = signed.payload, checkpoints = checkpointsOf(signed.payload)
 					const d = document(tree.toBytes()), b = boundary.map((x) => x.toBytes())
 					if (d === undefined) {
-						if (await stranger(tree.toBytes(), head.toBytes(), blob, true) === "pass") return
+						if (await stranger(tree.toBytes(), head.toBytes(), blob, b) === "pass") return
 						return await unnamed(tree, () => target.saveFragment(tree, head, signed, blob))
 					}
 					const door = await allowsFragment(d, head.toBytes(), b, checkpoints, blob)
@@ -922,7 +964,7 @@ export function createSubduction(
 					for (const c of commits) {
 						const id = c.commitId.toBytes()
 						const door = d === undefined
-							? await stranger(tree.toBytes(), id, c.blob, false)
+							? await stranger(tree.toBytes(), id, c.blob)
 							: await allows(d, id, c.blob)
 						if (door === "store") okCommits.push(c)
 					}
@@ -930,7 +972,7 @@ export function createSubduction(
 						const p = f.signedFragment.payload, head = f.fragmentHead.toBytes()
 						const b = p.boundary.map((x) => x.toBytes())
 						const door = d === undefined
-							? await stranger(tree.toBytes(), head, f.blob, true)
+							? await stranger(tree.toBytes(), head, f.blob, b)
 							: await allowsFragment(d, head, b, checkpointsOf(p), f.blob)
 						if (door === "store") okFragments.push(f)
 					}
