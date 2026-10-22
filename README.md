@@ -117,6 +117,21 @@ The image workflow compiles it with Deno; the npm packages it uses
 (`@automerge/subduction`, `@noble/hashes`) are pinned in `littlesync/deno.lock`
 and fetched then.
 
+## tippet
+
+The tippet galaxy (`experiments/tippet/galaxy.ts` in ermine) runs in the
+gateway's process, behind `littlesync/front.ts`. The front takes what the
+server passes for `/littlesync` and answers `/littlesync/tippet/<room>` itself:
+a websocket there, or HTTP long-poll at `.../send` and `.../recv`. It hands
+everything else to the gateway, which now listens on `GATEWAY_PORT` (default
+8082). Each room's log is kept under `$DATA_DIR/tippet`. Copy it again with:
+
+```sh
+sh littlesync/vendor-tippet.sh ../ermine   # after vendor.sh, if both
+```
+
+`VENDORED-tippet` records which ermine commit it came from.
+
 ## Working on the server patch
 
 ```sh

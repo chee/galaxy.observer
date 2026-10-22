@@ -7,6 +7,7 @@
 		"@ermine/ids": "./ermine/ids/typescript/ids.ts",
 		"@ermine/node/entry": "./core/node/typescript/entry.ts",
 		"@ermine/op/apply": "./core/op/typescript/apply.ts",
+		"@ermine/op/squish": "./core/op/typescript/squish.ts",
 		"@ermine/util/stacktrace": "./core/util/typescript/stacktrace.ts",
 		"@ermine/util/walk-string": "./core/util/typescript/walk-string.ts"
 	}

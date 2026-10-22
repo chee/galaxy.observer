@@ -7,7 +7,8 @@ set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
 out=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
-main=playground/together/stacks/littlesync/gateway/main.ts
+# the front: the gateway, and the tippet galaxy beside it (front.ts)
+main=front.ts
 cd "$here"
 
 # Fetch what deno.lock pins, then leave out the parts of @automerge/subduction the gateway never
@@ -24,4 +25,4 @@ for unused in dist/cjs dist/iife dist/subduction-debug.wasm dist/wasm_bindgen/we
 	set -- "$@" --exclude "$pkg/$unused"
 done
 
-deno compile --frozen --quiet --allow-net --allow-env "$@" --output "$out" "$main"
+deno compile --frozen --quiet --allow-net --allow-env --allow-read --allow-write "$@" --output "$out" "$main"
