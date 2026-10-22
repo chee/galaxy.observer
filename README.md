@@ -23,7 +23,12 @@ at `/littlesync`.
 The patch gives the server:
 
 - `--object-store <URL>` (or `SUBDUCTION_OBJECT_STORE`): keep sedimentree and
-  keyhive data in a bucket. Without it the server uses redb on local disk.
+  keyhive data in a bucket. Without it the server keeps files on local disk:
+  upstream's `sedimentree_fs_storage`, one `.meta` and one `.blob` file for
+  each commit and fragment, in place of upstream's redb database.
+- `subduction_cli from-object-store --from <URL> --to <DIR>`: copy a bucket's
+  documents and keyhive state into a data directory. The bucket is only read,
+  and a second run copies only what is new.
 - `GET /.well-known/keyhive/contact-card.json` (also `/contact-card.json` and
   `/contact-card`): the server's keyhive contact
   card.
@@ -70,6 +75,7 @@ The patch gives the server:
 | `SERVICE_NAME` | `galaxy.observer` | must equal the host in the client's URL |
 | `SUBDUCTION_AUTH` | `keyhive` | `open` turns keyhive off |
 | `SUBDUCTION_OBJECT_STORE` | unset | `s3://bucket/prefix`; unset stores on the `/data` volume |
+| `SUBDUCTION_COPY_FROM` | unset | `s3://bucket/prefix`: copy that bucket into `/data/store` at startup, before the server starts (see below) |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_ENDPOINT_URL` | | bucket credentials and endpoint |
 | `SUBDUCTION_PULL_PEERS` | unset | space-separated `wss://` URLs to pull from but never push to, e.g. `wss://subduction.sync.inkandswitch.com` |
 | `SUBDUCTION_IROH_PULL_PEERS` | unset | space-separated `ENDPOINT_ID@SERVICE_NAME` iroh peers to pull from but never push to |
@@ -80,6 +86,18 @@ The patch gives the server:
 | `PORT` | `8080` | |
 
 With a bucket, `SUBDUCTION_KEY_SEED` and `GATEWAY_SEED` the server needs no volume.
+
+### Moving from the bucket to the volume
+
+1. Mount a volume at `/data`.
+2. Set `SUBDUCTION_COPY_FROM` to the value `SUBDUCTION_OBJECT_STORE` has,
+   unset `SUBDUCTION_OBJECT_STORE`, and deploy. The container copies the
+   bucket into `/data/store` (the old deployment has stopped by then, so the
+   copy has everything), then starts the server on it. The server is down
+   while the copy runs.
+3. Unset `SUBDUCTION_COPY_FROM`. Leave the bucket alone until you're sure:
+   setting `SUBDUCTION_OBJECT_STORE` again goes back to it, without what was
+   written since.
 
 ## The littlesync gateway
 

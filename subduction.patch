@@ -909,10 +909,10 @@ index 8d36eee..ab41cc1 100644
  subduction_http_longpoll = { workspace = true, features = [
    "metrics",
 diff --git a/subduction_cli/README.md b/subduction_cli/README.md
-index 92ebd82..e54df4d 100644
+index 92ebd82..866fe3a 100644
 --- a/subduction_cli/README.md
 +++ b/subduction_cli/README.md
-@@ -133,6 +133,20 @@ subduction_cli server --socket 0.0.0.0:8080 --key-file ./key
+@@ -133,6 +133,22 @@ subduction_cli server --socket 0.0.0.0:8080 --key-file ./key
  | `--service-name <NAME>` | socket address | Service name for discovery mode handshake |
  | `--max-message-size <BYTES>` | `52428800` (50 MB) | Maximum WebSocket message size |
  
@@ -922,7 +922,9 @@ index 92ebd82..e54df4d 100644
 +|------|---------|-------------|
 +| `--object-store <URL>` | none | Keep sedimentree data in an object store instead of `--data-dir`: `s3://bucket/prefix` or `file:///dir`. Also read from `SUBDUCTION_OBJECT_STORE`. |
 +
-+By default the server stores everything under `--data-dir`. With
++By default the server stores everything under `--data-dir`, as files: one
++`.meta` and one `.blob` for each commit and fragment, under
++`trees/{id}/` (`sedimentree_fs_storage`). With
 +`--object-store`, commits, fragments and blobs live in the bucket and several
 +servers can share it; `s3://` takes credentials and endpoint from the `AWS_*`
 +environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
@@ -933,7 +935,35 @@ index 92ebd82..e54df4d 100644
  #### Transport Options
  
  | Flag | Default | Description |
-@@ -350,6 +364,42 @@ Caddy automatically handles WebSocket upgrades and TLS certificates.
+@@ -174,6 +190,27 @@ By default, iroh routes traffic through [iroh's public relay infrastructure](htt
+ |------|-------------|
+ | `--ready-file <PATH>` | Write a file on startup with assigned port, peer ID, and iroh node ID |
+ 
++### `from-object-store`
++
++Copy a bucket's sedimentree data and keyhive state into a data directory, so
++a server that ran with `--object-store` can run without it. The bucket is only
++read.
++
++```bash
++subduction_cli from-object-store --from s3://bucket/prefix --to /var/lib/subduction
++```
++
++| Flag | Default | Description |
++|------|---------|-------------|
++| `--from <URL>` | | The bucket, as `--object-store` names it |
++| `--to <DIR>` | | The data directory to copy into |
++| `--keyhive-dir <DIR>` | `keyhive-0.6` | The directory under the bucket's prefix that holds keyhive state |
++| `--progress-every <N>` | `100` | Log a progress line every N trees |
++
++Every run copies every tree; the files already there are skipped, so running
++it again after the server has written more copies only what is new. Stop the
++server and run it once more before starting the server on the directory.
++
+ ### `purge`
+ 
+ Delete all stored data.
+@@ -350,6 +387,42 @@ Caddy automatically handles WebSocket upgrades and TLS certificates.
  
  </details>
  
@@ -976,6 +1006,371 @@ index 92ebd82..e54df4d 100644
  ## Monitoring
  
  ### Prometheus
+diff --git a/subduction_cli/src/from_object_store.rs b/subduction_cli/src/from_object_store.rs
+new file mode 100644
+index 0000000..a7a53b1
+--- /dev/null
++++ b/subduction_cli/src/from_object_store.rs
+@@ -0,0 +1,359 @@
++//! Copy a server's bucket into a filesystem store.
++//!
++//! Reads every tree, with its blobs, from an [`ObjectStorage`] bucket and
++//! writes it into an [`FsStorage`] root, then copies the server's keyhive
++//! archives and events into `<to>/.keyhive`, so the destination is a data
++//! directory the server can run on without `--object-store`.
++//!
++//! The bucket is only read. Every tree is copied on every run: the
++//! filesystem store skips an item it already holds, so a second run after the
++//! server has written more to the bucket copies only what is new.
++//!
++//! Stop the server first, or run again once it has stopped, so the copy
++//! has everything the bucket has.
++
++use std::path::PathBuf;
++
++use eyre::{Context, Result};
++use future_form::Sendable;
++use futures::{StreamExt, TryStreamExt, stream};
++use sedimentree_core::id::SedimentreeId;
++use sedimentree_fs_storage::FsStorage;
++use subduction_core::storage::traits::Storage;
++use subduction_keyhive::storage::KeyhiveStorage;
++use subduction_object_storage::{ObjectKeyhiveStorage, ObjectStorage};
++
++use crate::{
++    keyhive::{FsKeyhiveStorage, KEYHIVE_DIR},
++    storage::OBJECT_KEYHIVE_DIR,
++};
++
++/// How many trees are copied at once.
++const TREES_AT_ONCE: usize = 8;
++
++/// Arguments for the from-object-store command.
++#[derive(Debug, clap::Parser)]
++pub(crate) struct FromObjectStoreArgs {
++    /// The bucket to copy from, as the server's `--object-store` names it:
++    /// `s3://bucket/prefix` (credentials and endpoint from the `AWS_*`
++    /// environment variables) or `file:///dir`.
++    #[arg(long, value_name = "URL")]
++    pub(crate) from: url::Url,
++
++    /// The data directory to copy into: the server's `--data-dir`.
++    #[arg(long, value_name = "DIR")]
++    pub(crate) to: PathBuf,
++
++    /// The directory under the bucket's prefix that holds keyhive state.
++    #[arg(long, default_value = OBJECT_KEYHIVE_DIR)]
++    pub(crate) keyhive_dir: String,
++
++    /// Log a progress line every N trees copied.
++    #[arg(long, default_value_t = 100)]
++    pub(crate) progress_every: usize,
++}
++
++/// Tallies from a copy.
++#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
++struct CopyStats {
++    trees: usize,
++    commits: usize,
++    fragments: usize,
++    keyhive_archives: usize,
++    keyhive_events: usize,
++}
++
++/// Run the from-object-store command.
++pub(crate) async fn run(args: FromObjectStoreArgs) -> Result<()> {
++    tracing::info!(
++        scheme = args.from.scheme(),
++        host = ?args.from.host_str(),
++        path = args.from.path(),
++        to = %args.to.display(),
++        "copying the bucket into a filesystem store"
++    );
++
++    let source = ObjectStorage::from_url(&args.from).wrap_err("open the bucket")?;
++    let dest = FsStorage::new(args.to.clone()).wrap_err("open the filesystem store")?;
++    let mut stats = copy_trees(&source, &dest, args.progress_every).await?;
++
++    let keyhive_dest =
++        FsKeyhiveStorage::new(args.to.join(KEYHIVE_DIR)).wrap_err("open keyhive storage")?;
++    let (archives, events) =
++        copy_keyhive(&source.keyhive_in(&args.keyhive_dir), &keyhive_dest).await?;
++    stats.keyhive_archives = archives;
++    stats.keyhive_events = events;
++
++    tracing::info!(
++        trees = stats.trees,
++        commits = stats.commits,
++        fragments = stats.fragments,
++        keyhive_archives = stats.keyhive_archives,
++        keyhive_events = stats.keyhive_events,
++        "copied the bucket into a filesystem store"
++    );
++    println!(
++        "Copied {} trees ({} commits, {} fragments) and keyhive's {} archives and {} events.",
++        stats.trees, stats.commits, stats.fragments, stats.keyhive_archives, stats.keyhive_events,
++    );
++
++    Ok(())
++}
++
++/// Copy every tree in `source` into `dest`, one batch a tree.
++async fn copy_trees(
++    source: &ObjectStorage,
++    dest: &FsStorage,
++    progress_every: usize,
++) -> Result<CopyStats> {
++    let progress_every = progress_every.max(1);
++    let ids = Storage::<Sendable>::load_all_sedimentree_ids(source)
++        .await
++        .wrap_err("list the bucket's trees")?;
++    let total = ids.len();
++    tracing::info!(trees = total, "found trees to copy");
++
++    let mut copied = stream::iter(ids)
++        .map(|id| copy_tree(source, dest, id))
++        .buffer_unordered(TREES_AT_ONCE);
++
++    let mut stats = CopyStats::default();
++    while let Some((commits, fragments)) = copied.try_next().await? {
++        stats.trees += 1;
++        stats.commits += commits;
++        stats.fragments += fragments;
++        if stats.trees % progress_every == 0 {
++            tracing::info!(copied = stats.trees, total, "copy progress");
++        }
++    }
++
++    Ok(stats)
++}
++
++/// Copy one tree, returning how many commits and fragments it has.
++async fn copy_tree(
++    source: &ObjectStorage,
++    dest: &FsStorage,
++    id: SedimentreeId,
++) -> Result<(usize, usize)> {
++    let commits = Storage::<Sendable>::load_loose_commits(source, id)
++        .await
++        .wrap_err_with(|| format!("load commits for {id:?}"))?;
++    let fragments = Storage::<Sendable>::load_fragments(source, id)
++        .await
++        .wrap_err_with(|| format!("load fragments for {id:?}"))?;
++    let counts = (commits.len(), fragments.len());
++
++    Storage::<Sendable>::save_batch(dest, id, commits, fragments)
++        .await
++        .wrap_err_with(|| format!("write tree {id:?}"))?;
++
++    // A tree with no items is still a tree the server knows.
++    Storage::<Sendable>::save_sedimentree_id(dest, id)
++        .await
++        .wrap_err_with(|| format!("register tree {id:?}"))?;
++
++    Ok(counts)
++}
++
++/// Copy keyhive's archives and events, returning how many of each.
++async fn copy_keyhive(
++    source: &ObjectKeyhiveStorage,
++    dest: &FsKeyhiveStorage,
++) -> Result<(usize, usize)> {
++    let archives = KeyhiveStorage::<Sendable>::load_archives(source)
++        .await
++        .wrap_err("load keyhive archives")?;
++    let archive_count = archives.len();
++    for (hash, data) in archives {
++        KeyhiveStorage::<Sendable>::save_archive(dest, hash, data)
++            .await
++            .wrap_err("save a keyhive archive")?;
++    }
++
++    let events = KeyhiveStorage::<Sendable>::load_events(source)
++        .await
++        .wrap_err("load keyhive events")?;
++    let event_count = events.len();
++    for (hash, data) in events {
++        KeyhiveStorage::<Sendable>::save_event(dest, hash, data)
++            .await
++            .wrap_err("save a keyhive event")?;
++    }
++
++    Ok((archive_count, event_count))
++}
++
++#[cfg(test)]
++mod tests {
++    use std::collections::BTreeSet;
++
++    use sedimentree_core::{
++        blob::{Blob, verified::VerifiedBlobMeta},
++        crypto::digest::Digest,
++        fragment::Fragment,
++        loose_commit::{LooseCommit, id::CommitId},
++    };
++    use subduction_crypto::{signer::memory::MemorySigner, verified_meta::VerifiedMeta};
++    use subduction_keyhive::storage::StorageHash;
++
++    use super::*;
++
++    fn signer() -> MemorySigner {
++        MemorySigner::from_bytes(&[7u8; 32])
++    }
++
++    async fn commit(
++        s: &MemorySigner,
++        id: SedimentreeId,
++        head: u8,
++        blob_len: usize,
++    ) -> VerifiedMeta<LooseCommit> {
++        VerifiedMeta::seal::<Sendable, _>(
++            s,
++            (id, CommitId::new([head; 32]), BTreeSet::new()),
++            VerifiedBlobMeta::new(Blob::new(vec![head; blob_len])),
++        )
++        .await
++    }
++
++    async fn fragment(
++        s: &MemorySigner,
++        id: SedimentreeId,
++        head: u8,
++        blob_len: usize,
++    ) -> VerifiedMeta<Fragment> {
++        VerifiedMeta::seal::<Sendable, _>(
++            s,
++            (
++                id,
++                CommitId::new([head; 32]),
++                BTreeSet::from([CommitId::new([0xF0; 32])]),
++                vec![CommitId::new([0xF1; 32])],
++            ),
++            VerifiedBlobMeta::new(Blob::new(vec![head; blob_len])),
++        )
++        .await
++    }
++
++    async fn commit_digests<S>(s: &S, id: SedimentreeId) -> Result<BTreeSet<Digest<LooseCommit>>>
++    where
++        S: Storage<Sendable>,
++        S::Error: Send + Sync + 'static,
++    {
++        Ok(Storage::<Sendable>::load_loose_commits(s, id)
++            .await
++            .wrap_err("load commits")?
++            .iter()
++            .map(|vm| Digest::hash(vm.payload()))
++            .collect())
++    }
++
++    async fn fragment_digests<S>(s: &S, id: SedimentreeId) -> Result<BTreeSet<Digest<Fragment>>>
++    where
++        S: Storage<Sendable>,
++        S::Error: Send + Sync + 'static,
++    {
++        Ok(Storage::<Sendable>::load_fragments(s, id)
++            .await
++            .wrap_err("load fragments")?
++            .iter()
++            .map(|vm| Digest::hash(vm.payload()))
++            .collect())
++    }
++
++    /// Every tree and keyhive file arrives with the same content, and a second
++    /// run picks up what the bucket gained in between.
++    #[tokio::test]
++    async fn copies_trees_and_keyhive_then_catches_up() -> Result<()> {
++        let bucket_dir = tempfile::tempdir()?;
++        let to_dir = tempfile::tempdir()?;
++        let url = url::Url::from_directory_path(bucket_dir.path())
++            .map_err(|()| eyre::eyre!("bucket dir is not absolute"))?;
++        let bucket = ObjectStorage::from_url(&url)?;
++        let s = signer();
++
++        let tree_a = SedimentreeId::new([0xA1; 32]);
++        let tree_b = SedimentreeId::new([0xB2; 32]);
++
++        // A small commit, one past the bucket's inline threshold, and a fragment.
++        Storage::<Sendable>::save_batch(
++            &bucket,
++            tree_a,
++            vec![
++                commit(&s, tree_a, 0x01, 16).await,
++                commit(&s, tree_a, 0x02, 20 * 1024).await,
++            ],
++            vec![fragment(&s, tree_a, 0x03, 32).await],
++        )
++        .await?;
++        Storage::<Sendable>::save_batch(
++            &bucket,
++            tree_b,
++            vec![commit(&s, tree_b, 0x10, 64).await],
++            Vec::new(),
++        )
++        .await?;
++
++        let keyhive = bucket.keyhive_in(OBJECT_KEYHIVE_DIR);
++        KeyhiveStorage::<Sendable>::save_archive(
++            &keyhive,
++            StorageHash::new([1; 32]),
++            b"a".to_vec(),
++        )
++        .await?;
++        KeyhiveStorage::<Sendable>::save_event(&keyhive, StorageHash::new([2; 32]), b"e".to_vec())
++            .await?;
++
++        run(FromObjectStoreArgs {
++            from: url.clone(),
++            to: to_dir.path().to_path_buf(),
++            keyhive_dir: OBJECT_KEYHIVE_DIR.to_owned(),
++            progress_every: 1,
++        })
++        .await?;
++
++        // The bucket gains a commit after the first copy.
++        Storage::<Sendable>::save_loose_commit(&bucket, tree_b, commit(&s, tree_b, 0x11, 64).await)
++            .await?;
++        run(FromObjectStoreArgs {
++            from: url,
++            to: to_dir.path().to_path_buf(),
++            keyhive_dir: OBJECT_KEYHIVE_DIR.to_owned(),
++            progress_every: 1,
++        })
++        .await?;
++
++        // Opened fresh, as the server would open it.
++        let dest = FsStorage::new(to_dir.path().to_path_buf())?;
++        assert_eq!(
++            Storage::<Sendable>::load_all_sedimentree_ids(&dest).await?,
++            Storage::<Sendable>::load_all_sedimentree_ids(&bucket).await?,
++        );
++        for id in [tree_a, tree_b] {
++            assert_eq!(
++                commit_digests(&bucket, id).await?,
++                commit_digests(&dest, id).await?,
++                "commits of {id:?}"
++            );
++            assert_eq!(
++                fragment_digests(&bucket, id).await?,
++                fragment_digests(&dest, id).await?,
++                "fragments of {id:?}"
++            );
++        }
++        assert_eq!(commit_digests(&dest, tree_b).await?.len(), 2);
++
++        let keyhive_dest = FsKeyhiveStorage::new(to_dir.path().join(KEYHIVE_DIR))?;
++        assert_eq!(
++            KeyhiveStorage::<Sendable>::load_archives(&keyhive_dest).await?,
++            vec![(StorageHash::new([1; 32]), b"a".to_vec())]
++        );
++        assert_eq!(
++            KeyhiveStorage::<Sendable>::load_events(&keyhive_dest).await?,
++            vec![(StorageHash::new([2; 32]), b"e".to_vec())]
++        );
++
++        Ok(())
++    }
++}
 diff --git a/subduction_cli/src/handler.rs b/subduction_cli/src/handler.rs
 index 9f0dbe7..d8f9c7d 100644
 --- a/subduction_cli/src/handler.rs
@@ -1126,10 +1521,20 @@ index 9f0dbe7..d8f9c7d 100644
          subduction_core::connection::message::SyncMessage,
      >,
 diff --git a/subduction_cli/src/main.rs b/subduction_cli/src/main.rs
-index cbc8d6e..788ea7e 100644
+index cbc8d6e..651fa83 100644
 --- a/subduction_cli/src/main.rs
 +++ b/subduction_cli/src/main.rs
-@@ -13,6 +13,7 @@ mod migrate;
+@@ -4,7 +4,9 @@
+ 
+ pub mod metrics;
+ 
++#[allow(dead_code)] // the server keeps no redb store for it to inspect
+ mod admin;
++mod from_object_store;
+ mod handler;
+ mod inspect;
+ mod key;
+@@ -13,6 +15,7 @@ mod migrate;
  mod policy;
  mod purge;
  mod server;
@@ -1137,6 +1542,25 @@ index cbc8d6e..788ea7e 100644
  mod transport;
  mod wire;
  
+@@ -39,6 +42,7 @@ async fn main() -> eyre::Result<()> {
+     match args.command {
+         Command::Server(server_args) => server::run(*server_args, token).await?,
+         Command::Migrate(migrate_args) => migrate::run(migrate_args).await?,
++        Command::FromObjectStore(copy_args) => from_object_store::run(copy_args).await?,
+         Command::Inspect(inspect_args) => inspect::run(inspect_args).await?,
+         Command::Purge(purge_args) => purge::run(purge_args).await?,
+     }
+@@ -212,6 +216,10 @@ enum Command {
+     #[command(name = "migrate")]
+     Migrate(migrate::MigrateArgs),
+ 
++    /// Copy a bucket's sedimentree and keyhive data into a filesystem store
++    #[command(name = "from-object-store")]
++    FromObjectStore(from_object_store::FromObjectStoreArgs),
++
+     /// Inspect a running server's store via its admin endpoint
+     #[command(name = "inspect")]
+     Inspect(inspect::InspectArgs),
 diff --git a/subduction_cli/src/policy.rs b/subduction_cli/src/policy.rs
 index a17751f..0be90da 100644
 --- a/subduction_cli/src/policy.rs
@@ -1219,27 +1643,29 @@ index a17751f..0be90da 100644
              return async { ids }.boxed();
          };
 diff --git a/subduction_cli/src/server.rs b/subduction_cli/src/server.rs
-index 77ada8f..44a3e61 100644
+index 77ada8f..1604212 100644
 --- a/subduction_cli/src/server.rs
 +++ b/subduction_cli/src/server.rs
-@@ -13,7 +13,8 @@ use std::{
+@@ -13,7 +13,9 @@ use std::{
  use eyre::Result;
  use future_form::Sendable;
  use iroh::{EndpointAddr, endpoint::presets};
 -use sedimentree_core::depth::CountLeadingZeroBytes;
 +use sedimentree_core::{depth::CountLeadingZeroBytes, id::SedimentreeId};
++use sedimentree_fs_storage::FsStorage;
 +use subduction_core::policy::storage::StoragePolicy;
  use subduction_core::{
      authenticated::Authenticated,
      handshake::{
-@@ -33,6 +34,7 @@ use subduction_core::{
+@@ -33,7 +35,7 @@ use subduction_core::{
  };
  use subduction_crypto::{nonce::Nonce, signer::memory::MemorySigner};
  use subduction_http_longpoll::server::LongPollHandler;
+-use subduction_redb_storage::RedbStorage;
 +use subduction_object_storage::ObjectStorage;
- use subduction_redb_storage::RedbStorage;
  use subduction_websocket::{
      DEFAULT_MAX_MESSAGE_SIZE,
+     handshake::WebSocketHandshake,
 @@ -56,12 +58,13 @@ use subduction_keyhive::{connection::KeyhiveConnection, runtime::init_sendable_k
  use crate::{
      handler::{
@@ -1251,7 +1677,7 @@ index 77ada8f..44a3e61 100644
      keyhive::{CliConnKeyhiveAdapter, FsKeyhiveStorage, KEYHIVE_DIR},
      metrics,
      policy::CliKeyhivePolicyHandle,
-+    storage::{CliKeyhiveStorage, CliStorage},
++    storage::{CliKeyhiveStorage, CliStorage, OBJECT_KEYHIVE_DIR},
      transport::UnifiedTransport,
  };
  
@@ -1286,7 +1712,19 @@ index 77ada8f..44a3e61 100644
      #[command(flatten)]
      pub(crate) key: key::KeyArgs,
  
-@@ -195,6 +213,16 @@ pub(crate) struct ServerArgs {
+@@ -146,9 +164,8 @@ pub(crate) struct ServerArgs {
+     pub(crate) metrics: bool,
+ 
+     /// Bind a localhost admin HTTP server for live store inspection
+-    /// (`GET /inspect`). Off unless set. Use a loopback address such as
+-    /// `127.0.0.1:9091`: it exposes storage internals (tree ids, heads,
+-    /// digests) and has no authentication.
++    /// (`GET /inspect`). Not available here: it inspects a redb store, and
++    /// this server keeps files or a bucket.
+     #[arg(long, value_name = "ADDR")]
+     pub(crate) admin_addr: Option<SocketAddr>,
+ 
+@@ -195,6 +212,16 @@ pub(crate) struct ServerArgs {
      #[arg(long = "ws-peer", value_name = "URL")]
      pub(crate) ws_peers: Vec<String>,
  
@@ -1303,7 +1741,7 @@ index 77ada8f..44a3e61 100644
      /// Enable the Iroh (QUIC) transport for NAT-traversing P2P connections
      #[arg(long, default_value_t = false)]
      pub(crate) iroh: bool,
-@@ -217,6 +245,20 @@ pub(crate) struct ServerArgs {
+@@ -217,6 +244,20 @@ pub(crate) struct ServerArgs {
      #[arg(long = "iroh-relay-url", value_name = "URL")]
      pub(crate) iroh_relay_url: Option<String>,
  
@@ -1324,7 +1762,7 @@ index 77ada8f..44a3e61 100644
      /// Write a JSON file on startup with the assigned port, peer ID, and iroh node ID.
      /// Useful for integration tests that need to discover the server's address.
      #[arg(long = "ready-file", value_name = "PATH")]
-@@ -276,6 +318,13 @@ impl ServerArgs {
+@@ -276,6 +317,13 @@ impl ServerArgs {
      }
  }
  
@@ -1338,7 +1776,7 @@ index 77ada8f..44a3e61 100644
  /// Default interval for refreshing storage metrics (1 minute).
  const DEFAULT_METRICS_REFRESH_SECS: u64 = 60;
  
-@@ -299,19 +348,27 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
+@@ -299,19 +347,25 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
  
      // Initialize the full keyhive stack: storage, identity, protocol, ingest.
      let keyhive_signer = key::keyhive_signer_from_seed(&common.seed);
@@ -1347,9 +1785,7 @@ index 77ada8f..44a3e61 100644
 -    let fs_keyhive_storage = FsKeyhiveStorage::new(keyhive_root)?;
 +    let keyhive_storage = if let Some(object_storage) = &common.object_storage {
 +        tracing::info!("Keyhive storage in the object store");
-+        // keyhive_core 0.6 can't read the 0.5 events kept in `keyhive/`, so it
-+        // starts its own directory
-+        CliKeyhiveStorage::Object(object_storage.keyhive_in("keyhive-0.6"))
++        CliKeyhiveStorage::Object(object_storage.keyhive_in(OBJECT_KEYHIVE_DIR))
 +    } else {
 +        let keyhive_root = common.data_dir.join(KEYHIVE_DIR);
 +        tracing::info!(root = ?keyhive_root, "Initializing keyhive storage");
@@ -1370,7 +1806,7 @@ index 77ada8f..44a3e61 100644
          kh_peer_id,
          contact_card,
      ));
-@@ -351,9 +408,10 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
+@@ -351,9 +405,10 @@ async fn run_with_keyhive(args: ServerArgs, token: CancellationToken) -> Result<
          common,
          storage_policy,
          Some(keyhive_protocol),
@@ -1383,7 +1819,7 @@ index 77ada8f..44a3e61 100644
          },
      )
      .await
-@@ -374,7 +432,10 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
+@@ -374,18 +429,23 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
          common,
          storage_policy,
          None,
@@ -1395,7 +1831,12 @@ index 77ada8f..44a3e61 100644
      )
      .await
  }
-@@ -385,7 +446,9 @@ async fn run_open(args: ServerArgs, token: CancellationToken) -> Result<()> {
+ 
+ /// Common setup shared by [`run_with_keyhive`] and [`run_open`]: parses
+-/// addresses, starts the metrics endpoint and refresh task, opens redb
+-/// storage, and derives the signing identity.
++/// addresses, starts the metrics endpoint and refresh task, opens storage,
++/// and derives the signing identity.
  struct SetupCommon {
      addr: SocketAddr,
      data_dir: PathBuf,
@@ -1406,13 +1847,13 @@ index 77ada8f..44a3e61 100644
      seed: [u8; 32],
      signer: MemorySigner,
      peer_id: PeerId,
-@@ -414,18 +477,13 @@ impl SetupCommon {
+@@ -414,22 +474,17 @@ impl SetupCommon {
              );
          }
  
 -        tracing::info!(dir = ?data_dir, "Initializing redb storage");
 -        let redb_storage = RedbStorage::new(data_dir.clone())?;
-+        let backend = open_storage(args, &data_dir, token).await?;
++        let backend = open_storage(args, &data_dir).await?;
  
 -        // Optional localhost admin server for live inspection. Shares the redb
 -        // handle (Arc-cheap clone); queries run as MVCC read txns concurrent
@@ -1425,13 +1866,18 @@ index 77ada8f..44a3e61 100644
 -        let storage = MetricsStorage::new(redb_storage);
 +        let object_storage = match &backend {
 +            CliStorage::Object(object_storage) => Some(object_storage.clone()),
-+            CliStorage::Redb(_) => None,
++            CliStorage::Fs(_) => None,
 +        };
 +        let storage = MetricsStorage::new(backend);
  
          // Background metrics refresh
          if args.metrics {
-@@ -510,6 +568,7 @@ impl SetupCommon {
+-            // Seed the storage gauge (one `trees` B+tree scan on redb) and log
++            // Seed the storage gauge (the tree ids, held in memory) and log
+             // the startup tree count explicitly (the gauge alone only surfaces
+             // it to scrapers; this makes the boot-time count visible in logs).
+             let startup_tree_count = storage.refresh_metrics().await?;
+@@ -510,6 +565,7 @@ impl SetupCommon {
              addr,
              data_dir,
              storage,
@@ -1439,44 +1885,30 @@ index 77ada8f..44a3e61 100644
              seed,
              signer,
              peer_id,
-@@ -521,6 +580,36 @@ impl SetupCommon {
+@@ -521,6 +577,22 @@ impl SetupCommon {
      }
  }
  
 +/// Open the sedimentree store: the `--object-store` bucket if one is given,
-+/// redb under the data directory otherwise.
-+async fn open_storage(
-+    args: &ServerArgs,
-+    data_dir: &std::path::Path,
-+    token: &CancellationToken,
-+) -> Result<CliStorage> {
++/// files under the data directory otherwise.
++async fn open_storage(args: &ServerArgs, data_dir: &std::path::Path) -> Result<CliStorage> {
++    eyre::ensure!(
++        args.admin_addr.is_none(),
++        "--admin-addr inspects a redb store, and the server keeps none"
++    );
 +    if let Some(url) = &args.object_store {
-+        eyre::ensure!(
-+            args.admin_addr.is_none(),
-+            "--admin-addr inspects the redb store and is not available with --object-store"
-+        );
 +        tracing::info!(scheme = url.scheme(), host = ?url.host_str(), path = url.path(), "Initializing object storage");
 +        Ok(CliStorage::Object(ObjectStorage::from_url(url)?))
 +    } else {
-+        tracing::info!(dir = ?data_dir, "Initializing redb storage");
-+        let redb_storage = RedbStorage::new(data_dir)?;
-+
-+        // Optional localhost admin server for live inspection. Shares the redb
-+        // handle (Arc-cheap clone); queries run as MVCC read txns concurrent
-+        // with the live writer.
-+        if let Some(admin_addr) = args.admin_addr {
-+            crate::admin::start_admin_server(admin_addr, redb_storage.clone(), token.clone())
-+                .await?;
-+        }
-+
-+        Ok(CliStorage::Redb(redb_storage))
++        tracing::info!(dir = ?data_dir, "Initializing filesystem storage");
++        Ok(CliStorage::Fs(FsStorage::new(data_dir.to_path_buf())?))
 +    }
 +}
 +
  /// Build the Subduction instance and run the transport accept loops.
  ///
  /// Generic over the composed handler `H`. `keyhive_protocol` is `None` in open
-@@ -533,15 +622,17 @@ async fn serve<H, F>(
+@@ -533,15 +605,17 @@ async fn serve<H, F>(
      common: SetupCommon,
      storage_policy: Arc<CliKeyhivePolicyHandle>,
      keyhive_protocol: Option<CliKeyhiveProtocol>,
@@ -1495,7 +1927,7 @@ index 77ada8f..44a3e61 100644
          signer,
          peer_id,
          handshake_max_drift,
-@@ -553,7 +644,7 @@ where
+@@ -553,7 +627,7 @@ where
  
      let builder = SubductionBuilder::new()
          .signer(signer.clone())
@@ -1504,7 +1936,7 @@ index 77ada8f..44a3e61 100644
          .spawner(TokioSpawn)
          .timer(FuturesTimerTimeout)
          // Seeded so sequences resume above previous values across restarts;
-@@ -578,6 +669,7 @@ where
+@@ -578,6 +652,7 @@ where
      };
  
      let mut requestor_tally = None;
@@ -1512,7 +1944,7 @@ index 77ada8f..44a3e61 100644
      let (subduction, listener_fut, manager_fut, ephemeral): (CliSubduction<H>, _, _, _) = builder
          .build_composed(|sync_handler| {
              requestor_tally = Some(sync_handler.requestor_tally());
-@@ -604,13 +696,22 @@ where
+@@ -604,13 +679,22 @@ where
                  }
              });
  
@@ -1536,7 +1968,7 @@ index 77ada8f..44a3e61 100644
      // Periodically publish the in-memory cache occupancy and the top-requestor
      // window. Lives here (not in the storage refresh task) because both come
      // from `Subduction`/handler state, not the storage backend. The resident
-@@ -768,6 +869,13 @@ where
+@@ -768,6 +852,13 @@ where
      let ws_keepalive = KeepAlive::balanced();
  
      let accept_keyhive = keyhive_protocol.clone();
@@ -1550,7 +1982,7 @@ index 77ada8f..44a3e61 100644
      let accept_task = tokio::spawn(async move {
          accept_loop(
              tcp_listener,
-@@ -775,6 +883,10 @@ where
+@@ -775,6 +866,10 @@ where
              accept_ephemeral,
              accept_handler,
              accept_keyhive,
@@ -1561,7 +1993,7 @@ index 77ada8f..44a3e61 100644
              accept_cancel,
              handshake_max_drift,
              max_message_size,
-@@ -802,7 +914,10 @@ where
+@@ -802,7 +897,10 @@ where
              iroh::endpoint::RelayMode::Default
          };
  
@@ -1572,7 +2004,7 @@ index 77ada8f..44a3e61 100644
              .alpns(vec![subduction_iroh::ALPN.to_vec()])
              .relay_mode(relay_mode)
              .bind()
-@@ -854,7 +969,9 @@ where
+@@ -854,7 +952,9 @@ where
                                          Ok(_) => {
                                              iroh_ephemeral.subscribe_peer(remote).await;
                                              notify_peer_connect(iroh_keyhive_proto.as_ref(), auth_for_keyhive).await;
@@ -1583,7 +2015,7 @@ index 77ada8f..44a3e61 100644
                                              tracing::info!(peer = %remote, "iroh: added peer");
                                          }
                                          Err(e) => {
-@@ -958,6 +1075,7 @@ where
+@@ -958,6 +1058,7 @@ where
                  peer_max_message_size,
                  peer_max_frame_size,
                  peer_keepalive,
@@ -1591,7 +2023,7 @@ index 77ada8f..44a3e61 100644
              )
              .await
              {
-@@ -971,6 +1089,45 @@ where
+@@ -971,6 +1072,45 @@ where
          });
      }
  
@@ -1637,7 +2069,7 @@ index 77ada8f..44a3e61 100644
      // Write ready file if requested (for integration tests)
      if let Some(ref ready_path) = args.ready_file {
          let iroh_line = iroh_node_id
-@@ -1045,6 +1202,131 @@ fn publish_disk_usage(data_dir: &std::path::Path) {
+@@ -1045,6 +1185,131 @@ fn publish_disk_usage(data_dir: &std::path::Path) {
      subduction_core::metrics::set_redb_file_bytes(redb_bytes);
  }
  
@@ -1769,7 +2201,7 @@ index 77ada8f..44a3e61 100644
  /// Accept loop: routes incoming TCP connections to WebSocket or HTTP long-poll.
  #[allow(clippy::too_many_arguments)]
  async fn accept_loop<H: CliWireHandler>(
-@@ -1053,6 +1335,10 @@ async fn accept_loop<H: CliWireHandler>(
+@@ -1053,6 +1318,10 @@ async fn accept_loop<H: CliWireHandler>(
      ephemeral: CliEphemeralHandler,
      lp_handler: LongPollHandler<MemorySigner, FuturesTimerTimeout>,
      keyhive_proto: Option<CliKeyhiveProtocol>,
@@ -1780,7 +2212,7 @@ index 77ada8f..44a3e61 100644
      cancel: CancellationToken,
      handshake_max_drift: Duration,
      max_message_size: usize,
-@@ -1080,20 +1366,45 @@ async fn accept_loop<H: CliWireHandler>(
+@@ -1080,20 +1349,45 @@ async fn accept_loop<H: CliWireHandler>(
                          let task_ephemeral = ephemeral.clone();
                          let task_handler = lp_handler.clone();
                          let task_keyhive = keyhive_proto.clone();
@@ -1834,7 +2266,7 @@ index 77ada8f..44a3e61 100644
                              }
  
                              let is_http = peek_buf.starts_with(b"POST")
-@@ -1131,7 +1442,7 @@ async fn accept_loop<H: CliWireHandler>(
+@@ -1131,7 +1425,7 @@ async fn accept_loop<H: CliWireHandler>(
                              } else {
                                  tracing::warn!(
                                      addr = %addr,
@@ -1843,7 +2275,7 @@ index 77ada8f..44a3e61 100644
                                      "unknown protocol"
                                  );
                              }
-@@ -1399,6 +1710,160 @@ async fn handle_http_longpoll<H: CliWireHandler>(
+@@ -1399,6 +1693,160 @@ async fn handle_http_longpoll<H: CliWireHandler>(
      }
  }
  
@@ -2004,7 +2436,7 @@ index 77ada8f..44a3e61 100644
  /// Wrap a connection in a keyhive adapter and register the peer.
  ///
  /// No-op when keyhive is disabled (`protocol` is `None`).
-@@ -1427,6 +1892,7 @@ async fn try_connect_ws<H: CliWireHandler>(
+@@ -1427,6 +1875,7 @@ async fn try_connect_ws<H: CliWireHandler>(
      max_message_size: usize,
      max_frame_size: usize,
      keepalive: KeepAlive,
@@ -2012,7 +2444,7 @@ index 77ada8f..44a3e61 100644
  ) -> Result<PeerId, eyre::Error> {
      let uri_str = uri.to_string();
      tracing::info!(uri = %uri_str, service_name = %service_name, "Connecting to peer via discovery");
-@@ -1514,15 +1980,201 @@ async fn try_connect_ws<H: CliWireHandler>(
+@@ -1514,15 +1963,201 @@ async fn try_connect_ws<H: CliWireHandler>(
      let remote_id = authenticated.peer_id();
      tracing::info!(peer = %remote_id, "Handshake complete: connected to peer");
  
@@ -2215,7 +2647,7 @@ index 77ada8f..44a3e61 100644
  /// Connect to a peer via Iroh (QUIC) transport (outbound).
  #[allow(clippy::too_many_arguments)]
  async fn try_connect_iroh<H: CliWireHandler>(
-@@ -1581,9 +2233,8 @@ async fn try_connect_iroh<H: CliWireHandler>(
+@@ -1581,9 +2216,8 @@ async fn try_connect_iroh<H: CliWireHandler>(
      subduction.add_connection(auth).await?;
      ephemeral.subscribe_peer(remote_id).await;
      notify_peer_connect(keyhive_proto, auth_for_keyhive).await;
@@ -2229,13 +2661,13 @@ index 77ada8f..44a3e61 100644
      Ok(remote_id)
 diff --git a/subduction_cli/src/storage.rs b/subduction_cli/src/storage.rs
 new file mode 100644
-index 0000000..3c03952
+index 0000000..3e571e3
 --- /dev/null
 +++ b/subduction_cli/src/storage.rs
-@@ -0,0 +1,215 @@
+@@ -0,0 +1,220 @@
 +//! The server's storage backends, chosen at startup.
 +//!
-+//! [`CliStorage`] is either the local [`RedbStorage`] (the default) or an
++//! [`CliStorage`] is either the local [`FsStorage`] (the default) or an
 +//! [`ObjectStorage`] bucket (`--object-store`), and [`CliKeyhiveStorage`]
 +//! follows it: files under the data directory, or the same bucket. One
 +//! concrete type each keeps the handler and `Subduction` type aliases free of
@@ -2248,19 +2680,24 @@ index 0000000..3c03952
 +    id::SedimentreeId,
 +    loose_commit::{LooseCommit, id::CommitId},
 +};
++use sedimentree_fs_storage::{FsStorage, FsStorageError};
 +use subduction_core::storage::traits::Storage;
 +use subduction_crypto::verified_meta::VerifiedMeta;
 +use subduction_keyhive::storage::{KeyhiveStorage, StorageHash};
 +use subduction_object_storage::{ObjectKeyhiveStorage, ObjectStorage, ObjectStorageError};
-+use subduction_redb_storage::{RedbStorage, RedbStorageError};
 +
 +use crate::keyhive::{FsKeyhiveStorage, FsKeyhiveStorageError};
++
++/// The directory under the bucket's prefix that holds keyhive state.
++/// `keyhive_core` 0.5 and 0.6 can't read each other's events, so each
++/// version has its own.
++pub(crate) const OBJECT_KEYHIVE_DIR: &str = "keyhive-0.6";
 +
 +/// The storage backend the server runs on.
 +#[derive(Debug, Clone)]
 +pub(crate) enum CliStorage {
-+    /// redb + blob files under the data directory.
-+    Redb(RedbStorage),
++    /// Files under the data directory, one pair per commit or fragment.
++    Fs(FsStorage),
 +
 +    /// An object store bucket.
 +    Object(ObjectStorage),
@@ -2270,7 +2707,7 @@ index 0000000..3c03952
 +#[derive(Debug, thiserror::Error)]
 +pub(crate) enum CliStorageError {
 +    #[error(transparent)]
-+    Redb(#[from] RedbStorageError),
++    Fs(#[from] FsStorageError),
 +
 +    #[error(transparent)]
 +    Object(#[from] ObjectStorageError),
@@ -2283,7 +2720,7 @@ index 0000000..3c03952
 +    ($self:ident.$method:ident($($arg:ident),*)) => {
 +        Sendable::from_future(async move {
 +            match $self {
-+                Self::Redb(s) => Ok(Storage::<Sendable>::$method(s, $($arg),*).await?),
++                Self::Fs(s) => Ok(Storage::<Sendable>::$method(s, $($arg),*).await?),
 +                Self::Object(s) => Ok(Storage::<Sendable>::$method(s, $($arg),*).await?),
 +            }
 +        })

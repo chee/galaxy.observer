@@ -48,7 +48,9 @@ jobs:
 
       - name: Test
         working-directory: subduction
-        run: cargo test --release --locked -p subduction_object_storage --all-features
+        run: |
+          cargo test --release --locked -p subduction_object_storage --all-features
+          cargo test --release --locked -p subduction_cli --bin subduction_cli from_object_store
 
       - uses: denoland/setup-deno@v2
         with:

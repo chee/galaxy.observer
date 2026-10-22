@@ -43,7 +43,15 @@ if [ -z "${GATEWAY_SEED:-}" ]; then
 	GATEWAY_SEED=$(cat "$GATEWAY_SEED_FILE")
 fi
 
-# Storage is redb under $DATA_DIR/store unless SUBDUCTION_OBJECT_STORE names a
+# SUBDUCTION_COPY_FROM (s3://bucket/prefix, with AWS_* credentials): copy that
+# bucket's documents and keyhive state into $DATA_DIR/store before the server
+# starts. Files already there are skipped, so this catches up a previous copy.
+# Unset it once the server runs on the copy.
+if [ -n "${SUBDUCTION_COPY_FROM:-}" ]; then
+	subduction_cli from-object-store --from "$SUBDUCTION_COPY_FROM" --to "$DATA_DIR/store"
+fi
+
+# Storage is files under $DATA_DIR/store unless SUBDUCTION_OBJECT_STORE names a
 # bucket (s3://bucket/prefix, with AWS_* credentials), which the server reads
 # from the environment itself.
 #
