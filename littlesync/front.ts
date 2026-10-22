@@ -1,11 +1,11 @@
 // the front: what the server passes through for /littlesync, in one process with the gateway. the
-// tippet galaxy (experiments/tippet/galaxy.ts) answers /littlesync/tippet/<room>; everything else
+// tippet galaxy (experiments/tippet/typescript/galaxy.ts) answers /littlesync/tippet/<room>; everything else
 // goes on to the gateway, on its own port, as it came (a websocket piped both ways)
 //   FRONT_PORT   where the server sends /littlesync, default 8081
 //   PORT         the gateway's own port (main.ts), default 8080
 //   TIPPET_DIR   the tippet rooms' logs, default ./tippet-data
 import "./playground/together/stacks/littlesync/gateway/main.ts"
-import { createGalaxy } from "./experiments/tippet/galaxy.ts"
+import { createGalaxy } from "./experiments/tippet/typescript/galaxy.ts"
 
 const env = (k: string) => Deno.env.get(k) || undefined
 const gateway = `127.0.0.1:${env("PORT") ?? 8080}`

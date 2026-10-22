@@ -9,7 +9,7 @@ set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
 ermine=$(cd "${1:-$here/../../ermine}" && pwd)
-main=experiments/tippet/galaxy.ts
+main=experiments/tippet/typescript/galaxy.ts
 
 info=$(cd "$ermine" && deno info --json "$main")
 files=$(echo "$info" | deno eval --quiet '

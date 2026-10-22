@@ -1,5 +1,5 @@
-// a device's key: ed25519, through webcrypto. a device is named by its public key, hex. what it
-// signs is the hash of its latest step, so one signature covers every step before it
+// a device's key: ed25519, through webcrypto. a device is named by its public key, hex. it signs
+// the hash of a run's last step; verify checks that
 //
 //   const me = await createSigner(seed)   // seed: 32 bytes, the same device every run; none: new
 //   const sig = await me.sign(hash)
@@ -14,22 +14,14 @@ const PKCS8 = unhex("302e020100300506032b657004220420")
 const b64url = (s: string) =>
 	Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0))
 
-export async function createSigner(seed?: Uint8Array): Promise<Signer> {
-	let key: CryptoKey, pub: Uint8Array
-	if (seed === undefined) {
-		const pair = await crypto.subtle.generateKey("Ed25519", false, [
-			"sign",
-			"verify",
-		]) as CryptoKeyPair
-		key = pair.privateKey
-		pub = new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey))
-	} else {
-		if (seed.length !== 32) throw new TypeError("a seed is 32 bytes")
-		const der = new Uint8Array([...PKCS8, ...seed])
-		const open = await crypto.subtle.importKey("pkcs8", der, "Ed25519", true, ["sign"])
-		pub = b64url((await crypto.subtle.exportKey("jwk", open)).x!)
-		key = await crypto.subtle.importKey("pkcs8", der, "Ed25519", false, ["sign"])
-	}
+export async function createSigner(
+	seed: Uint8Array = crypto.getRandomValues(new Uint8Array(32)),
+): Promise<Signer> {
+	if (seed.length !== 32) throw new TypeError("a seed is 32 bytes")
+	const der = new Uint8Array([...PKCS8, ...seed])
+	const open = await crypto.subtle.importKey("pkcs8", der, "Ed25519", true, ["sign"])
+	const pub = b64url((await crypto.subtle.exportKey("jwk", open)).x!)
+	const key = await crypto.subtle.importKey("pkcs8", der, "Ed25519", false, ["sign"])
 	return {
 		device: hex(pub),
 		sign: async (m) => new Uint8Array(await crypto.subtle.sign("Ed25519", key, m.slice())),
