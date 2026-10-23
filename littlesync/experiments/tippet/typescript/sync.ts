@@ -7,8 +7,8 @@
 //   sync.live(bytes); sync.onLive((bytes) => ...)
 import { decode, encode, type Value } from "@ermine/encoding/cbor"
 import type { Log } from "./log.ts"
-import { pack, type Packed, unpack } from "./pack.ts"
-import { decodeStep, hex, key, unhex, whole } from "./step.ts"
+import { firstOf, pack, type Packed, stepsIn } from "./pack.ts"
+import { hex, key, unhex, whole } from "./step.ts"
 
 export type Link = {
 	send(bytes: Uint8Array): void
@@ -121,7 +121,9 @@ export function createSync(o: { log: Log; relay?: boolean }) {
 		// they said what they have meanwhile: this run may not be what they lack
 		if (!links.has(l) || (l.theirs.get(device) ?? 0) !== from - 1) return true
 		// as the log keeps it, when it is all of it
-		send(l, b.message ?? wire({ t: "run", device, sig: b.sig, pack: pack(b.steps) }))
+		// packed against the step before, which they hold
+		const p = () => pack(b.steps, from > 1 ? log.prior(device, from - 1) : undefined)
+		send(l, b.message ?? wire({ t: "run", device, sig: b.sig, pack: p() }))
 		l.theirs.set(device, from + b.steps.length - 1)
 		return true
 	}
@@ -162,14 +164,13 @@ export function createSync(o: { log: Log; relay?: boolean }) {
 			for (const [d, n] of Object.entries(log.have())) if ((m.have[d] ?? 0) < n) push(l, d)
 		} else if (m.t === "run") {
 			// last: the n of the run's last step, which they hold
-			let r, last = 0
+			let last = 0
 			try {
-				const steps = unpack(m.pack)
-				last = decodeStep(steps[0]).n + steps.length - 1
-				r = await log.take({ device: m.device, steps, sig: m.sig, message: bytes }, l)
+				last = firstOf(m.pack).n + stepsIn(m.pack) - 1
 			} catch {
-				r = { refused: "pack" }
+				// not a pack: refused when taken
 			}
+			const r = await log.takePack({ ...m, message: bytes }, l)
 			// a gap: say what this side has, and it is sent again from there. refused for good: say
 			// so, and it is sent no more
 			if ("added" in r) {

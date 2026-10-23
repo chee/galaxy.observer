@@ -9,6 +9,8 @@ type Ranged = Patch & { range: Span }
 const isList = Array.isArray
 const ranged = (p: Patch): p is Ranged => p.range !== undefined
 const plain = (p: Patch) => p.move === undefined && !("value" in p)
+// what joins and cuts: a string, a list, a typed array
+const sequence = (v: unknown) => typeof v === "string" || isList(v) || typed(v)
 
 // strings count code points: walk.ts
 function len(v: unknown): number {
@@ -126,7 +128,10 @@ function merge(t: Tail, prev: Patch, next: Patch): Patch | null {
 		if (c <= a && a <= d) return { path, range: [c, b + (d - a)] }
 		return null
 	}
-	if (c === a && d === a) return Object.assign(t, fresh()), { path, range: [a, b], value: w }
+	// a removal and an insert of something that is no sequence stay apart
+	if (c === a && d === a && sequence(w)) {
+		return Object.assign(t, fresh()), { path, range: [a, b], value: w }
+	}
 	return null
 }
 
@@ -135,10 +140,12 @@ function merge(t: Tail, prev: Patch, next: Patch): Patch | null {
 function could(t: Tail, prev: Patch, next: Patch): boolean {
 	if (!ranged(prev) || !ranged(next)) return false
 	const a = prev.range[0], [c, d] = next.range
-	if (!("value" in prev)) return "value" in next ? c === a && d === a : c <= a && a <= d
+	if (!("value" in prev)) {
+		return "value" in next ? c === a && d === a && sequence(next.value) : c <= a && a <= d
+	}
 	if (t.n >= 0) return (a <= c && d <= a + t.n) || (c === a + t.n && d > c)
 	const v = prev.value
-	return (typeof v === "string" || isList(v) || typed(v)) && a <= c && c <= a + v.length
+	return sequence(v) && a <= c && c <= a + (v as string | unknown[] | Typed).length
 }
 
 // a lone surrogate anywhere in v
@@ -164,13 +171,27 @@ export default function createSquish(): Squish {
 	const buf: Patch[] = []
 	// counting code points, a lone surrogate makes positions depend on what is around it, which
 	// squish never sees (a lone high meeting a lone low is one pair, a position fewer). so a patch
-	// that puts one somewhere is never merged, and nothing at or under where it went is merged
-	// again
+	// that puts one somewhere is never merged, and nothing at or under where it went, or was moved
+	// to, is merged again
 	// PROBLEM (open, flagged by the designer 10-11): the content squish starts on is taken to be
 	// well-formed. lone halves already in it are never seen (squish stays content-free), so a
 	// removal that brings two together is merged wrong (squish_test.ts, "removal joins them")
 	const fouled: (readonly Key[])[] = []
 	const isFouled = (path: readonly Key[]) => fouled.some((f) => under(path, f))
+	// a move takes what is fouled under where it takes from along: fouled under where it lands.
+	// true: its own place is fouled, as it takes from at or under a fouled place, or takes or lands
+	// in a span (what was under the span is somewhere else there)
+	function moved(p: Patch): boolean {
+		const from = p.move!
+		if (isFouled(from.path)) return true
+		for (let i = 0, n = fouled.length; i < n; i++) {
+			const f = fouled[i]
+			if (f.length <= from.path.length || !under(f, from.path)) continue
+			if (p.range !== undefined || from.range !== undefined) return true
+			fouled.push([...p.path, ...f.slice(from.path.length)])
+		}
+		return false
+	}
 	let tail = fresh()
 	// one per patch before the last: the tail it had, retired. its length stays counted; never
 	// changed in place again
@@ -187,14 +208,15 @@ export default function createSquish(): Squish {
 	return {
 		push(patch) {
 			if (patch.path.length === 0 && patch.range === undefined && patch.move === undefined) {
-				buf.length = 0, kept.length = 0
+				// the whole put: what was fouled is gone with the rest
+				buf.length = 0, kept.length = 0, fouled.length = 0
 			} else {
 				while (buf.length && dies(buf[buf.length - 1], patch)) {
 					buf.pop(), tail = kept.pop() ?? fresh()
 				}
 			}
 			let m = null
-			if (lone(patch.value) || (patch.move && isFouled(patch.move.path))) {
+			if (lone(patch.value) || (patch.move && moved(patch))) {
 				fouled.push(patch.path)
 			} else if (buf.length && !isFouled(patch.path)) {
 				m = merge(tail, buf[buf.length - 1], patch)
@@ -285,21 +307,36 @@ export function encode(patches: Iterable<Patch>): Columns {
 	}
 }
 
+// columns that do not cover their shape: an error
 export function decode(c: Columns): Patch[] {
 	const path = unruns(c.path),
 		shape = unruns(c.shape),
 		from = unruns(c.from),
 		size = unruns(c.size)
+	const short = (what: string) => new RangeError(`columns: ${what} does not cover the shapes`)
+	const take = (rs: Generator<number>, what: string) => {
+		const r = rs.next()
+		if (r.done) throw short(what)
+		return r.value
+	}
 	const out: Patch[] = []
 	let last = 0, v = 0, m = 0
 	for (const s of shape) {
-		const p: Patch = { path: c.paths[path.next().value!] }
+		const x = take(path, "path")
+		if (!(x >= 0 && x < c.paths.length)) throw short("paths")
+		const p: Patch = { path: c.paths[x] }
 		if (s & 1) {
-			last += from.next().value!
-			p.range = [last, last + size.next().value!]
+			last += take(from, "from")
+			p.range = [last, last + take(size, "size")]
 		}
-		if (s & 2) p.value = c.value[v++]
-		if (s & 4) p.move = c.move[m++]
+		if (s & 2) {
+			if (v >= c.value.length) throw short("value")
+			p.value = c.value[v++]
+		}
+		if (s & 4) {
+			if (m >= c.move.length) throw short("move")
+			p.move = c.move[m++]
+		}
 		out.push(p)
 	}
 	return out
