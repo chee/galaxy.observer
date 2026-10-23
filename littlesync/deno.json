@@ -1,9 +1,10 @@
 {
 	"imports": {
 		"@ermine/blake3": "./core/blake3/typescript/blake3.ts",
+		"@ermine/ed25519": "./core/ed25519/typescript/ed25519.ts",
 		"@ermine/encoding/cbor": "./ermine/encoding/typescript/cbor.ts",
-		"@ermine/encoding/commit": "./ermine/encoding/typescript/commit.ts",
-		"@ermine/encoding/pack": "./ermine/encoding/typescript/pack.ts",
+		"@ermine/formats/commit": "./playground/encoding/typescript/commit.ts",
+		"@ermine/formats/pack": "./playground/encoding/typescript/pack.ts",
 		"@ermine/ids": "./ermine/ids/typescript/ids.ts",
 		"@ermine/node/entry": "./core/node/typescript/entry.ts",
 		"@ermine/op/apply": "./core/op/typescript/apply.ts",

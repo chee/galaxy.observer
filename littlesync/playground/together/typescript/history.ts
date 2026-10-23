@@ -8,26 +8,32 @@
 // taken (else it waits), its lamport 1 + the highest of theirs (1 for a root: a lamport is derived,
 // never chosen), and check (the integration's: do its patches apply to its parent's node) says yes.
 // a commit taken in releases what waited on it, in order. one the check cannot judge yet waits on
-// nothing named until again() asks once more; a throw in the check is such a wait, and thrown
+// nothing named until again() asks once more; a throw in the check is such a wait, and thrown.
+// one the check holds (a merge by a rule this device doesn't know, or what goes on one touching its
+// path) is taken in all the same, a head like any other, its patches unapplied; its record carries
+// the rule: a held parent's (the first), else the nearest held ancestor's, else its own merge's
 //
 // beside it, for merge rules: what a commit's tables follow from (follows), and the commits since a
 // set of heads' common ancestor, in causal order (since)
-import { type Commit, compare, decode, name as nameOf } from "@ermine/encoding/commit"
+import { type Commit, compare, decode, name as nameOf } from "@ermine/formats/commit"
 import { hex } from "./hex.ts"
 
-// merge: a merge commit by a rule this device doesn't know
-export type Refusal = "shape" | "lamport" | "patches" | "parent" | "merge"
+export type Refusal = "shape" | "lamport" | "patches" | "parent"
 
-// waiting: on the parents named; on none, on the check (it could not judge the commit yet)
+// waiting: on the parents named; on none, on the check (it could not judge the commit yet). held:
+// taken in, not applied
 export type Added =
 	| "taken"
+	| "held"
 	| "passed"
 	| { waiting: string[] }
 	| { refused: Refusal }
 
 // what the check says of a commit: true, it applies; false, refused "patches"; a refusal, refused
-// so; "wait", it cannot be judged yet (authority not here yet, say): the commit waits on the check
-export type Judged = boolean | Refusal | "wait"
+// so; "wait", it cannot be judged yet (authority not here yet, say): the commit waits on the check;
+// "held", taken in unapplied (a held one with no rule to carry, neither on a held one nor a merge:
+// refused "patches")
+export type Judged = boolean | Refusal | "wait" | "held"
 
 // what a commit is kept as: its bytes, and what ordering and replay read without decoding again
 export type Kept = {
@@ -43,6 +49,8 @@ export type Kept = {
 	lamport: number
 	// a patch names what it replaces: its tables are the lists' (lists.ts), not its base's patched
 	replaces?: true
+	// held: the rule this device doesn't know that it waits for (a merge's, or one under it)
+	held?: string
 }
 
 export type History = {
@@ -60,7 +68,7 @@ export type History = {
 	// throw of the check thrown after
 	again(): void
 	refused(): { name: string; refused: Refusal; on?: string }[]
-	// every commit taken in, in the order taken
+	// every commit taken in, in the order taken (held ones too)
 	all(): Kept[]
 	// a head taken in let go of, as if never told of it: its parents heads again where nothing else
 	// goes on them. false: not taken, or something goes on it
@@ -91,6 +99,8 @@ export function createHistory(
 	// a commit refused for a parent: the parent refused, its name
 	const causes = new Map<string, string>()
 	const listeners = new Set<(kept: Kept) => void>()
+	// the lowest lamport of a held commit: none is under it
+	let low = Infinity
 
 	// refused, the oldest refusal let go of past most
 	function note(n: string, why: Refusal) {
@@ -149,7 +159,15 @@ export function createHistory(
 			waits.set(n, { kept, commit, on: new Set() })
 			return { waiting: [] }
 		}
-		if (ok !== true) {
+		if (ok === "held") {
+			const rule = heldBy(kept)
+			if (rule === undefined) ok = false
+			else {
+				kept.held = rule
+				low = Math.min(low, kept.lamport)
+			}
+		}
+		if (ok !== true && ok !== "held") {
 			const why = ok === false ? "patches" : ok
 			refuse(n, why)
 			return { refused: why }
@@ -174,7 +192,27 @@ export function createHistory(
 			}
 		}
 		waiters.delete(n)
-		return "taken"
+		return kept.held === undefined ? "taken" : "held"
+	}
+
+	// a held commit's rule: a held parent's (the first), else the nearest held ancestor's (back along
+	// parents, in their order, none under the lowest held), else its own merge's
+	function heldBy(k: Kept): string | undefined {
+		for (const p of k.parents) {
+			const h = taken.get(hex(p))!.held
+			if (h !== undefined) return h
+		}
+		const todo = k.parents.map((p) => taken.get(hex(p))!), seen = new Set<Kept>(todo)
+		for (let i = 0; i < todo.length; i++) {
+			if (todo[i].held !== undefined) return todo[i].held
+			for (const p of todo[i].parents) {
+				const q = taken.get(hex(p))
+				if (q === undefined || q.lamport < low || seen.has(q)) continue
+				seen.add(q)
+				todo.push(q)
+			}
+		}
+		return k.merge
 	}
 
 	// what an add or again met thrown, once it is done

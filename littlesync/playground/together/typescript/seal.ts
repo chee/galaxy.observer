@@ -15,8 +15,8 @@
 // that signed it, not the connection it came on: sealMessage, openMessage below
 import { blake3 } from "npm:@noble/hashes@1.8.0/blake3"
 import * as cbor from "@ermine/encoding/cbor"
-import { type Commit, decode, joinKey, name as nameOf, splitKey } from "@ermine/encoding/commit"
-import { strict } from "./ed25519.ts"
+import { type Commit, decode, joinKey, name as nameOf, splitKey } from "@ermine/formats/commit"
+import { strict } from "@ermine/ed25519"
 
 // key: the device's multikey; header: the varsig header its signatures begin with; sign: the raw
 // signature of the message, without the header

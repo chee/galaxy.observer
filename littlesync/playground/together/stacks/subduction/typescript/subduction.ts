@@ -20,14 +20,19 @@
 // fragment: its head one of its members, each member's stored id its own, its members and boundary
 // closed, as closure says); no signature is checked for this. one that fails is passed over: not
 // stored, noted in the document's status when the document is followed and the name not held. a
-// tree not named yet (unnamed) gets the same door, its id read from the envelope (the lock opened
-// with no id); one the lock cannot open so is stored as it came. a followed document's commit that
-// passes the door is checked whole (its signature, its lock, its shape) and refused when it is not
-// good: not stored, noted the same (one already held: not noted). the storage never throws
-// (Subduction would drop the connection, and a relay every follower with it): every save it does
-// not store returns as if it had. Subduction 0.23 adds what it was given to its own tree in memory
-// whether the save stored it or not, pushes it to a peer subscribed, and until it restarts does not
-// ask a peer for that name again
+// followed document's commit that passes the door is checked whole (its signature, its lock, its
+// shape) and refused when it is not good: not stored, noted the same (one already held: not noted).
+// the storage never throws (Subduction would drop the connection, and a relay every follower with
+// it): every save it does not store returns as if it had. Subduction 0.23 adds what it was given to
+// its own tree in memory whether the save stored it or not, pushes it to a peer subscribed, and until
+// it restarts does not ask a peer for that name again
+//
+// not shared means not stored: the policy turns away a peer's put or fetch for a tree not followed
+// (the connection stays up), counted once a connection: heard at a document named here, offered for
+// a tree not named. the storage stores only a followed tree's saves, or this device's own (its own
+// adds and stores, shared or not). what was under way when a document was paused (a save let in
+// before, what waited on the lock, a load) is taken in only if it is this device's own: another's
+// waits in the storage, loaded again when the document is next followed
 //
 // the tree id: the first 16 bytes of BLAKE3 of the pieces "ermine/v1/tree" and the id's UTF-8 (each
 // its length as an unsigned varint, then its bytes), then 16 zero bytes (galaxy's Keyhive rule)
@@ -42,7 +47,7 @@ import {
 import { hex, unhex } from "../../../typescript/hex.ts"
 import { blake3 } from "npm:@noble/hashes@1.8.0/blake3"
 import * as cbor from "@ermine/encoding/cbor"
-import { CommitError, decode, name as nameOf, splitKey } from "@ermine/encoding/commit"
+import { CommitError, decode, name as nameOf, splitKey } from "@ermine/formats/commit"
 import { build, depth, type Fragment } from "./fragment.ts"
 import type { Kept } from "../../../typescript/history.ts"
 import {
@@ -94,7 +99,15 @@ export type Wired = {
 	connectDiscover(url: string, service?: string): Promise<void>
 	// every connection to the peer with that key (a multikey)
 	disconnect(key: Uint8Array): Promise<void>
+	// carried from now: subscribed, fetched, and what this device stores of it sent. not followed, a
+	// document's own commits and fragments are stored here, never sent, and nothing ephemeral goes
 	follow(doc: string): Promise<void>
+	// carried no more: out of the followed, its topic let go of, asked for no more. what is stored
+	// stays; a peer may still push until a reconnect
+	pause(doc: string): Promise<void>
+	// paused, then taken off this device: Subduction's tree, the storage's commits, fragments and tree
+	// id, and the mailroom's document (named again, it starts fresh)
+	drop(doc: string): Promise<void>
 	// bytes to whoever listens on a topic (a string, named by hash so it is never a document's):
 	// ephemeral, kept nowhere, not heard here. over LIMIT: sent as parts, joined at the other end
 	send(topic: string, bytes: Uint8Array): Promise<void>
@@ -103,8 +116,19 @@ export type Wired = {
 	listen(topic: string, fn: (from: string, bytes: Uint8Array) => void): () => void
 	stored(doc: string): Promise<Uint8Array[]>
 	fragments(doc: string): Fragment[]
-	// how many trees the storage holds whose id is not named yet: listed, not taken in
+	// how many trees the storage holds whose id is not named yet (only this device's own are stored
+	// so): listed, not taken in
 	unnamed(): number
+	// a peer's puts and fetches for the document turned away while it is not followed: once a
+	// connection; none again once it is followed
+	turned(doc: string): number
+	// the trees not named here a peer put or asked for, turned away: by tree id (hex), once a
+	// connection each
+	offered(): { tree: string; count: number }[]
+	// fn told each time offered() changes; gives back the stop
+	offers(fn: () => void): () => void
+	// a peer said it holds heads of the document (Subduction's remote heads, not none)
+	elsewhere(doc: string): boolean
 	// the lock's or the check's changed(): what waited on the lock, or on the check, is tried again
 	changed(): Promise<void>
 	// an ephemeral payload's parts not joined yet are dropped now, as the setting would in time
@@ -287,7 +311,8 @@ type Tree = {
 // may wait for the rest; storage: where Subduction keeps what it saves (taken in on save as ever),
 // default in memory; lazy: what the storage holds is taken in as each document is followed, not at
 // the start; snapshotOf: the integration's, the tables at a fragment's head, packed (snapshot.ts),
-// for its snapshot, undefined: none for this one (the integration decides when one is worth it)
+// for its snapshot, undefined: none for this one (the integration decides when one is worth it);
+// first: ids named before the start, their trees taken in at it, lazy or not
 export function createSubduction(
 	mailroom: Mailroom,
 	options: {
@@ -299,6 +324,7 @@ export function createSubduction(
 		lazy?: boolean
 		snapshotOf?: (doc: string, head: Kept) => Uint8Array | undefined
 		limits: Limits & Joining
+		first?: readonly string[]
 	},
 ) {
 	const lock = options.lock ?? unlocked
@@ -310,7 +336,8 @@ export function createSubduction(
 	const { moved, refuse, clear, settle, opened, pend, member, hint } = mailroom
 	const trees = new WeakMap<Doc, Tree>()
 	// the documents by their tree id's hex: which id made this tree id. none for a tree until its
-	// document is named (a hash can't be turned back into an id): what comes for it is unnamed
+	// document is named (a hash can't be turned back into an id): what a peer puts or asks for of it
+	// is turned away, offered
 	const docs = new Map<string, Doc>()
 	const document = (tree: Uint8Array): Doc | undefined => docs.get(hex(tree))
 	function of(d: Doc): Tree {
@@ -332,10 +359,26 @@ export function createSubduction(
 	}
 	// the documents followed, by their tree id's hex
 	const followed = new Set<string>()
+	const shared = (d: Doc) => followed.has(hex(of(d).tree.toBytes()))
 	// the trees the storage held at the start not taken in then (their id not named yet, or lazy),
-	// by hex, and those taken in since: each taken in when its document is followed
+	// by hex, and those taken in since: each taken in when its document is followed. one whose take
+	// in left another's commits out (not followed then) is taken in again on the next follow
 	const held = new Set<string>()
 	const taken = new Set<string>()
+	const reload = (d: Doc) => {
+		const k = hex(of(d).tree.toBytes())
+		held.add(k)
+		taken.delete(k)
+	}
+	// this device's own: a commit its key signed
+	const mine = (it: Sealed) => same(decode(it.bytes).signer, options.signer.key)
+	// what peers asked of trees not followed, turned away: by tree hex, how many connections; each
+	// peer and tree counted on its connection now; who is told of offers; the trees a peer said it
+	// holds heads of
+	const turned = new Map<string, number>()
+	const knocked = new Set<string>()
+	const offerers = new Set<() => void>()
+	const holders = new Set<string>()
 	const peers = new Map<string, sd.PeerId>()
 	// topics listened on, by their hash's hex: the Topic and who is told
 	const topics = new Map<
@@ -345,8 +388,14 @@ export function createSubduction(
 
 	// ---- taking in
 
-	// this device's own loose commits being added, by stored id: their closed bytes
+	// this device's own loose commits being added, by stored id, and its fragments, by head: their
+	// closed bytes
 	const owned = new Map<string, Uint8Array>()
+	const built = new Map<string, Uint8Array>()
+	const ours = (at: Map<string, Uint8Array>, id: sd.CommitId, blob: Uint8Array) => {
+		const b = at.get(hex(id.toBytes()))
+		return b !== undefined && same(b, blob)
+	}
 
 	// a loose commit's steps, the lock, the door (the envelope's id, the seal's, its stored id), then
 	// the seal: what the lock opened and its commit; "wait": the lock cannot open it yet; "passed": it
@@ -391,7 +440,9 @@ export function createSubduction(
 		const h = hex(head)
 		if (d.seen.has(h)) return
 		of(d).locked.commits.delete(h)
-		const got = await opening(d, h, blob)
+		// not followed: nothing noted, only this device's own taken in
+		const out = !shared(d)
+		const got = await opening(d, h, blob, !out)
 		if (got === "passed" || got === "refused") return
 		if (got === "wait") {
 			clear(d, h)
@@ -401,6 +452,7 @@ export function createSubduction(
 			})
 			return
 		}
+		if (out && !mine(got.it)) return reload(d)
 		pend(d, h, {
 			commit: true,
 			it: got.it,
@@ -424,38 +476,6 @@ export function createSubduction(
 		if (got !== "passed" && got !== "refused") return "store"
 		if (!here) moved(d)
 		return "pass"
-	}
-
-	// the door for a tree not named yet (above): a loose commit's or a fragment's envelope (a fragment's:
-	// its boundary given), its id read from it. one the lock cannot open without its id: stored as it
-	// came
-	async function stranger(
-		tree: Uint8Array,
-		head: Uint8Array,
-		blob: Uint8Array,
-		boundary?: Uint8Array[],
-	): Promise<Door> {
-		const open = await lock.open(new Uint8Array(0), blob)
-		if (!(open instanceof Uint8Array)) return "store"
-		const e = boundary
-			? envelopeOf(open, ["run", "snapshot?"], ["members", "snapshot?"])
-			: envelopeOf(open, ["sealed"])
-		if (e === "shape") return "pass"
-		let mine: boolean
-		try {
-			mine = same(treeOf(e.id), tree)
-		} catch (x) {
-			if (!(x instanceof SealError)) throw x
-			mine = false
-		}
-		if (!mine) return "pass"
-		if (boundary) {
-			const members = listed(e.carries)
-			if (members === "shape" || names(e.id, members, head) !== undefined) return "pass"
-			return closure(e.id, members, head, boundary) === undefined ? "store" : "pass"
-		}
-		const s = e.carries.sealed instanceof Uint8Array ? sealOf(e.carries.sealed) : undefined
-		return s !== undefined && s.id === e.id && same(stored(e.id, s.name), head) ? "store" : "pass"
 	}
 
 	// a fragment's envelope opened: {id, run: its members as a pack (packer.ts), snapshot?: packed
@@ -623,6 +643,8 @@ export function createSubduction(
 		const here = d.seen.get(h)
 		if (here && of(d).fragments.has(h) && d.judged.has(here.name)) return
 		of(d).locked.fragments.delete(h)
+		// not followed: nothing noted, only this device's own taken in
+		const out = !shared(d)
 		const open = await lock.open(d.bytes, blob)
 		if (!(open instanceof Uint8Array)) {
 			if (here) {
@@ -634,14 +656,15 @@ export function createSubduction(
 					boundary: boundary.map(hex),
 					again: () => fragment(d, head, boundary, checkpoints, blob),
 				})
-			} else broke(d, h, "lock", open.refused)
+			} else if (!out) broke(d, h, "lock", open.refused)
 			return
 		}
 		const got = await checked(d, head, boundary, checkpoints, open)
 		if (typeof got === "string") {
-			if (!here) broke(d, h, ...noted(got))
+			if (!here && !out) broke(d, h, ...noted(got))
 			return
 		}
+		if (out && !got.members.every((m) => mine(m.it))) return reload(d)
 		of(d).broken.delete(h)
 		for (const m of got.members) member(d, m)
 		if (!of(d).fragments.has(h)) {
@@ -794,13 +817,21 @@ export function createSubduction(
 			const names = f.boundary.map((b) => unhex(d.seen.get(hex(b))!.name))
 				.sort((a, b) => by(hex(a), hex(b)))
 			const closed = await lock.close(d.bytes, nameOf(bytes), names, bytes)
-			await sub.addFragment(
-				of(d).tree,
-				commitId(f.head),
-				f.boundary.map(commitId),
-				f.checkpoints.map(commitId),
-				closed,
-			)
+			// its own bytes are stored, followed or not
+			built.set(hex(f.head), closed)
+			try {
+				// sent only when followed, read here, after the last wait
+				await (shared(d) ? sub.addFragment : sub.storeFragment).call(
+					sub,
+					of(d).tree,
+					commitId(f.head),
+					f.boundary.map(commitId),
+					f.checkpoints.map(commitId),
+					closed,
+				)
+			} finally {
+				built.delete(hex(f.head))
+			}
 			await compact(d, f.head)
 		}
 	}
@@ -827,7 +858,9 @@ export function createSubduction(
 		commits: { id: sd.CommitId; parents: sd.CommitId[]; blob: Uint8Array }[],
 		fragments: Saved[],
 	) {
-		const d = document(tree.toBytes())!
+		const d = document(tree.toBytes())
+		// let go of since (drop)
+		if (d === undefined) return
 		const deep = of(d).deep
 		for (const c of commits) {
 			await commit(d, c.id.toBytes(), c.parents.map((p) => p.toBytes()), c.blob)
@@ -855,14 +888,22 @@ export function createSubduction(
 		// its own bytes pass the door unopened (an own commit is never opened)
 		owned.set(hex(s), blob)
 		try {
-			const r = await sub.addCommit(of(d).tree, commitId(s), parents.map(commitId), blob)
+			// sent only when followed, read here, after the last wait
+			const r = await (shared(d) ? sub.addCommit : sub.storeCommit).call(
+				sub,
+				of(d).tree,
+				commitId(s),
+				parents.map(commitId),
+				blob,
+			)
 			if (r) await run(() => building(d, [s]))
 		} finally {
 			owned.delete(hex(s))
 		}
 	}
 
-	// an ephemeral commit of this device's: closed, published, as parts when over LIMIT
+	// an ephemeral commit of this device's: closed, published, as parts when over LIMIT; nothing for a
+	// document not followed
 	async function publish(d: Doc, kept: Kept) {
 		const blob = await lock.close(
 			d.bytes,
@@ -870,6 +911,7 @@ export function createSubduction(
 			kept.parents,
 			envelope(d.id, { commit: kept.bytes }),
 		)
+		if (!shared(d)) return
 		if (blob.length <= LIMIT) return await sub.publishEphemeral(of(d).topic, blob)
 		const whole = blake3(blob), parts = Math.ceil(blob.length / PART)
 		for (let i = 0; i < parts; i++) {
@@ -885,21 +927,18 @@ export function createSubduction(
 	const checkpointsOf = (f: sd.Fragment) =>
 		(f.checkpoints as unknown as { toBytes(): Uint8Array }[]).map((c) => c.toBytes())
 
-	// a save for a tree whose id is not named yet, past the door (stranger): stored, the tree listed;
-	// taken in, each checked whole, when its document is followed
-	async function unnamed<T>(tree: sd.SedimentreeId, put: () => Promise<T>): Promise<T> {
-		const r = await put()
-		held.add(hex(tree.toBytes()))
-		return r
-	}
-
-	// Subduction's storage, wrapped: it stores only what passes the door (allows, allowsFragment; a
-	// tree not named yet, stranger), and what it stores of a followed document is then taken in. one
-	// passed over or refused is not stored, and the save returns as if it were: never a throw
+	// Subduction's storage, wrapped: it stores only a followed document's saves that pass the door
+	// (allows, allowsFragment), then taken in, and this device's own, followed or not; a tree id only
+	// for a document named here. what it does not store returns as if it were: never a throw
 	const storage = new Proxy(memory as sd.MemoryStorage, {
 		get(target, key) {
 			const f = (target as unknown as Record<string | symbol, unknown>)[key]
 			if (typeof f !== "function") return f
+			if (key === "saveSedimentreeId") {
+				return async (tree: sd.SedimentreeId) => {
+					if (document(tree.toBytes()) !== undefined) await target.saveSedimentreeId(tree)
+				}
+			}
 			if (key === "saveCommit") {
 				return async (
 					tree: sd.SedimentreeId,
@@ -909,10 +948,7 @@ export function createSubduction(
 				) => {
 					const parents = signed.payload.parents
 					const d = document(tree.toBytes())
-					if (d === undefined) {
-						if (await stranger(tree.toBytes(), id.toBytes(), blob) === "pass") return
-						return await unnamed(tree, () => target.saveCommit(tree, id, signed, blob))
-					}
+					if (d === undefined || !shared(d) && !ours(owned, id, blob)) return
 					if (await allows(d, id.toBytes(), blob) === "pass") return
 					await target.saveCommit(tree, id, signed, blob)
 					later(() => save(tree, [{ id, parents, blob }], []))
@@ -927,11 +963,13 @@ export function createSubduction(
 				) => {
 					const { boundary } = signed.payload, checkpoints = checkpointsOf(signed.payload)
 					const d = document(tree.toBytes()), b = boundary.map((x) => x.toBytes())
-					if (d === undefined) {
-						if (await stranger(tree.toBytes(), head.toBytes(), blob, b) === "pass") return
-						return await unnamed(tree, () => target.saveFragment(tree, head, signed, blob))
+					if (d === undefined) return
+					if (!ours(built, head, blob)) {
+						if (!shared(d)) return
+						if (await allowsFragment(d, head.toBytes(), b, checkpoints, blob) === "pass") {
+							return
+						}
 					}
-					if (await allowsFragment(d, head.toBytes(), b, checkpoints, blob) === "pass") return
 					await target.saveFragment(tree, head, signed, blob)
 					later(() => save(tree, [], [{ head, boundary, checkpoints, blob }]))
 				}
@@ -951,28 +989,22 @@ export function createSubduction(
 					}[],
 				) => {
 					const d = document(tree.toBytes())
+					if (d === undefined) return 0
 					// what does not get in is left out
 					const okCommits: typeof commits = [], okFragments: typeof fragments = []
 					for (const c of commits) {
-						const id = c.commitId.toBytes()
-						const door = d === undefined
-							? await stranger(tree.toBytes(), id, c.blob)
-							: await allows(d, id, c.blob)
-						if (door === "store") okCommits.push(c)
+						const here = ours(owned, c.commitId, c.blob)
+						if (!here && !shared(d)) continue
+						if (await allows(d, c.commitId.toBytes(), c.blob) === "store") okCommits.push(c)
 					}
 					for (const f of fragments) {
 						const p = f.signedFragment.payload, head = f.fragmentHead.toBytes()
 						const b = p.boundary.map((x) => x.toBytes())
-						const door = d === undefined
-							? await stranger(tree.toBytes(), head, f.blob, b)
-							: await allowsFragment(d, head, b, checkpointsOf(p), f.blob)
-						if (door === "store") okFragments.push(f)
-					}
-					if (d === undefined) {
-						return await unnamed(
-							tree,
-							() => target.saveBatchAll(tree, okCommits as never, okFragments as never),
-						)
+						if (ours(built, f.fragmentHead, f.blob)) okFragments.push(f)
+						else if (!shared(d)) continue
+						else if (
+							await allowsFragment(d, head, b, checkpointsOf(p), f.blob) === "store"
+						) okFragments.push(f)
 					}
 					const cs = okCommits.map((c) => ({
 						id: c.commitId,
@@ -994,11 +1026,72 @@ export function createSubduction(
 		},
 	}) as unknown as sd.SedimentreeStorage
 
+	// ---- the policy: what a peer may put, fetch, subscribe to and publish on
+
+	const isFollowed = (tree: Uint8Array) => followed.has(hex(tree))
+	// a peer's put or fetch for a tree not followed, turned away (thrown: Subduction denies it, the
+	// connection up): counted once a connection, the document told (moved), or, not named, whoever
+	// listens for offers
+	function turn(peer: sd.PeerId, tree: sd.SedimentreeId): Promise<void> {
+		const t = tree.toBytes(), k = hex(t)
+		if (isFollowed(t)) return Promise.resolve()
+		const p = hex(peer.toBytes()) + " " + k
+		if (!knocked.has(p)) {
+			knocked.add(p)
+			turned.set(k, (turned.get(k) ?? 0) + 1)
+			const d = docs.get(k)
+			if (d !== undefined) moved(d)
+			else {
+				for (const fn of [...offerers]) {
+					try {
+						fn()
+					} catch (e) {
+						trouble.push(e)
+					}
+				}
+			}
+		}
+		return Promise.reject(new Error("not shared here"))
+	}
+	// a peer's counts start again on each connection
+	const met = (peer: Uint8Array) => {
+		const p = hex(peer) + " "
+		for (const x of [...knocked]) if (x.startsWith(p)) knocked.delete(x)
+	}
+	// a topic a peer may subscribe to or publish on: a channel's, or a followed document's
+	const open = (topic: sd.Topic) => {
+		const k = hex(topic.toBytes())
+		return topics.has(k) || followed.has(k)
+	}
+
 	const own = splitKey(options.signer.key)
 	if (own?.code !== ED25519) throw new Error("a device's key is Ed25519")
 	const sub = new sd.Subduction({
 		signer: { sign: (m) => options.signer.sign(m), verifyingKey: () => own.key },
 		storage,
+		policy: {
+			authorizeConnect(peer: sd.PeerId) {
+				met(peer.toBytes())
+				return Promise.resolve()
+			},
+			authorizeFetch: (peer: sd.PeerId, tree: sd.SedimentreeId) => turn(peer, tree),
+			authorizePut: (requestor: sd.PeerId, _author: sd.PeerId, tree: sd.SedimentreeId) =>
+				turn(requestor, tree),
+			filterAuthorizedFetch: (_peer: sd.PeerId, ids: sd.SedimentreeId[]) =>
+				Promise.resolve(ids.filter((t) => isFollowed(t.toBytes()))),
+		},
+		ephemeralPolicy: {
+			authorizeSubscribe: (_peer: sd.PeerId, topic: sd.Topic) =>
+				open(topic) ? Promise.resolve() : Promise.reject(new Error("not shared here")),
+			authorizePublish: (_peer: sd.PeerId, topic: sd.Topic) =>
+				open(topic) ? Promise.resolve() : Promise.reject(new Error("not shared here")),
+			filterAuthorizedSubscribers: (topic: sd.Topic, peers: sd.PeerId[]) =>
+				Promise.resolve(open(topic) ? peers : []),
+		},
+		// a peer holding heads of a tree: held elsewhere
+		onRemoteHeads: (tree: sd.SedimentreeId, _peer: sd.PeerId, heads: sd.CommitId[]) => {
+			if (heads?.length) holders.add(hex(tree.toBytes()))
+		},
 		onEphemeral: (topic: sd.Topic, from: sd.PeerId, payload: Uint8Array) => {
 			const t = topic.toBytes(), k = hex(t), d = docs.get(k)
 			const part = partOf(payload)
@@ -1058,13 +1151,15 @@ export function createSubduction(
 	}
 
 	// starting: what the storage holds, taken in before any connection, for the trees whose id is
-	// named already; the others (a hash can't be turned back into an id), and all when lazy, only
-	// listed, each taken in when its document is followed
+	// named already (this device's own commits; another's once its document is followed); the others
+	// (a hash can't be turned back into an id), and all when lazy, only listed, each taken in when its
+	// document is followed
+	const early = new Set((options.first ?? []).map((id) => hex(of(named(id)).tree.toBytes())))
 	const loaded = run(async () => {
 		for (const tree of await memory.loadAllSedimentreeIds()) {
 			const k = hex(tree.toBytes())
 			held.add(k)
-			if (lazy || document(tree.toBytes()) === undefined) continue
+			if (lazy && !early.has(k) || document(tree.toBytes()) === undefined) continue
 			taken.add(k)
 			await load(tree)
 		}
@@ -1102,7 +1197,8 @@ export function createSubduction(
 	}
 
 	// the document fetched from every peer, subscribed; then once more subscribed: what was added
-	// while the first was out (or before it was asked) is in neither its answer nor a push
+	// while the first was out (or before it was asked) is in neither its answer nor a push. one tree
+	// at a time, never fullSyncWithAllPeers: it pushes every tree this device holds, shared or not
 	async function fetched(d: Doc) {
 		await sub.syncWithAllPeers(of(d).tree, true)
 		await sub.syncWithAllPeers(of(d).tree, true)
@@ -1117,6 +1213,7 @@ export function createSubduction(
 	let closed = false
 	const worth = (d: Doc, i: number) => {
 		const h = d.histories.stored
+		if (!shared(d) || mailroom.documents.get(d.id) !== d) return false
 		return i < 2 || (i < backoff.length && h.all().length === 0) || mailroom.waits(d)
 	}
 	function asking(d: Doc, i = 0) {
@@ -1155,16 +1252,45 @@ export function createSubduction(
 			if (raw === undefined) return
 			const peer = peers.get(hex(raw)) ?? new sd.PeerId(raw)
 			peers.delete(hex(raw))
+			met(raw)
 			await sub.disconnectFromPeer(peer)
 		},
 		async follow(doc) {
 			await loaded
-			const d = named(doc)
-			followed.add(hex(of(d).tree.toBytes()))
+			const d = named(doc), k = hex(of(d).tree.toBytes())
+			followed.add(k)
+			// heard while not followed: none now
+			if (turned.delete(k)) moved(d)
+			for (const x of [...knocked]) if (x.endsWith(" " + k)) knocked.delete(x)
 			await loadFollowed(d)
 			await subscribe(of(d).topic)
 			await fetched(d)
 			asking(d)
+		},
+		async pause(doc) {
+			await loaded
+			const d = mailroom.documents.get(doc)
+			if (d === undefined) return
+			const t = of(d)
+			followed.delete(hex(t.tree.toBytes()))
+			if (wanted.delete(hex(t.topic.toBytes()))) await sub.unsubscribeEphemeral([t.topic])
+		},
+		async drop(doc) {
+			await device.pause(doc)
+			// what is under way for it first
+			await mailroom.device.idle().catch(() => {})
+			const id = treeOf(doc), k = hex(id), tree = sd.SedimentreeId.fromBytes(id)
+			await sub.removeSedimentree(tree)
+			await memory.deleteAllCommits(tree)
+			await memory.deleteAllFragments(tree)
+			await memory.deleteSedimentreeId(tree)
+			followed.delete(k)
+			held.delete(k)
+			taken.delete(k)
+			turned.delete(k)
+			holders.delete(k)
+			docs.delete(k)
+			mailroom.drop(doc)
 		},
 		async send(topic, bytes) {
 			const t = channelTopic(topic).topic
@@ -1192,6 +1318,15 @@ export function createSubduction(
 		},
 		fragments: (doc) => [...of(named(doc)).fragments.values()],
 		unnamed: () => [...held].filter((k) => !docs.has(k)).length,
+		turned: (doc) => turned.get(hex(treeOf(doc))) ?? 0,
+		offered: () =>
+			[...turned].filter(([k]) => !docs.has(k)).map(([tree, count]) => ({ tree, count }))
+				.sort((a, b) => by(a.tree, b.tree)),
+		offers(fn) {
+			offerers.add(fn)
+			return () => void offerers.delete(fn)
+		},
+		elsewhere: (doc) => holders.has(hex(treeOf(doc))),
 		async changed() {
 			for (const d of mailroom.documents.values()) {
 				const { commits, fragments } = of(d).locked
@@ -1223,7 +1358,10 @@ export function createSubduction(
 	mailroom.attach({
 		made: (d) => void of(d),
 		send: (d, layer, kept) => layer === "stored" ? store(d, kept) : publish(d, kept),
-		stop: (d, table) => sub.publishEphemeral(of(d).topic, cbor.encode({ stop: table })),
+		stop: (d, table) =>
+			shared(d)
+				? sub.publishEphemeral(of(d).topic, cbor.encode({ stop: table }))
+				: Promise.resolve(),
 		// a seal taken in: a depth makes it worth building. a loose commit of it waiting on the lock
 		// waits no more (it got in another way: a fragment's member)
 		handed(d, s) {

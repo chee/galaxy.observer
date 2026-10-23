@@ -48,7 +48,7 @@
 // documents), and a seal from elsewhere put to the stack as a loose commit (the stack's inside.put)
 import type * as sd from "npm:@automerge/subduction@0.23.0"
 import * as cbor from "@ermine/encoding/cbor"
-import { type Commit, decode, encode, name as nameOf } from "@ermine/encoding/commit"
+import { type Commit, decode, encode, name as nameOf } from "@ermine/formats/commit"
 import { createMailroom, LIMITS } from "../../../typescript/mailroom.ts"
 import { createSubduction, envelope, JOINING } from "../../subduction/typescript/subduction.ts"
 import { createHistory, type History, type Kept } from "../../../typescript/history.ts"
@@ -300,7 +300,10 @@ export function createGateway(options: {
 		const added = node.check.add(u.bytes)
 		if (added === "passed") return
 		merged("device", node, { merge: u.commit.merge, name: u.name })
-		if (added === "taken") return await forward(node, node.check.get(u.name)!, sealed)
+		// held: taken in, not applied, so passed on as any commit taken
+		if (added === "taken" || added === "held") {
+			return await forward(node, node.check.get(u.name)!, sealed)
+		}
 		if ("refused" in added) {
 			const on = node.check.refused().find((r) => r.name === n)?.on
 			return refuse(

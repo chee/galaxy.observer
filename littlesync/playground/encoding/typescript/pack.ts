@@ -24,7 +24,7 @@
 // reading also takes the first form {keys: [[part, id, n], …], nodes: [...]}; unknown keys are
 // skipped (loosyGoosy). an id as bytes (as ermine ids, and before them an old pack's 32 bytes, were
 // once written): not a pack.
-import * as cbor from "./cbor.ts"
+import * as cbor from "@ermine/encoding/cbor"
 import { deflate, DeflateError, inflate } from "./deflate.ts"
 import createEntry, { type ChangeHeader, type Entry as NodeEntry } from "@ermine/node/entry"
 import type { Patch, Target } from "@ermine/op/apply"
@@ -494,13 +494,20 @@ function columns(z: unknown, r: Reader, limit: number): Entry[] {
 		if (!(v instanceof Uint8Array)) throw no()
 		return [...varints(v)]
 	}
-	// runs spread out: each [it, how many], how many whole and at least 1
-	const spread = (k: string): unknown[] => {
-		const out: unknown[] = []
-		for (const run of listOf(k)) {
+	// runs spread out: each [it, how many], how many whole and at least 1; more than bound
+	// altogether (the keys or nodes the columns count, as pack.c has it) is no pack, and is refused
+	// before it is spread
+	const spread = (k: string, bound: number): unknown[] => {
+		const runs = listOf(k)
+		let total = 0
+		for (const run of runs) {
 			if (!Array.isArray(run) || run.length !== 2 || !whole(run[1]) || run[1] < 1) throw no()
-			if (out.length + (run[1] as number) > 2 ** 32) throw no()
-			for (let i = 0; i < (run[1] as number); i++) out.push(run[0])
+			total += run[1] as number
+			if (total > bound) throw no()
+		}
+		const out: unknown[] = []
+		for (const [it, many] of runs as [unknown, number][]) {
+			for (let i = 0; i < many; i++) out.push(it)
 		}
 		return out
 	}
@@ -509,7 +516,7 @@ function columns(z: unknown, r: Reader, limit: number): Entry[] {
 		if (typeof i === "string") return i
 		throw no()
 	})
-	const parts = spread("parts"), which = numbers("which"), named = numbers("nodes")
+	const which = numbers("which"), named = numbers("nodes"), parts = spread("parts", which.length)
 	const k = parts.length
 	if (which.length !== k || named.length !== k) throw no()
 	// ids in the order the keys first name them, each named
@@ -523,10 +530,10 @@ function columns(z: unknown, r: Reader, limit: number): Entry[] {
 	const m = has.length
 	if (times.length !== m) throw no()
 	const fields: Record<string, unknown[]> = {
-		actor: spread("actor"),
-		reader: spread("reader"),
-		external: spread("external"),
-		metadata: spread("metadata"),
+		actor: spread("actor", m),
+		reader: spread("reader", m),
+		external: spread("external", m),
+		metadata: spread("metadata", m),
 		op: listOf("op"),
 		values: listOf("values"),
 	}

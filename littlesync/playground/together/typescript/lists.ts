@@ -16,10 +16,16 @@
 //
 // a merge by a rule: a whole write of each table, its value the rule's (after).
 //
+// a held commit (history.ts): a write at each of its paths (a merge's: its table, whole; else its
+// patches' key paths), held, with no value. it replaces no write but a held one, as any write
+// would; a write that is not held replaces it as any other. a path's held items come after its
+// others (beside what shows), never shown, never inside or over; a path with one is open. its
+// other paths are as if its patches were key patches on all its parents: nothing.
+//
 // the node is the first item at each path, composed shallow to deep: a deep write's missing parents
 // made as maps (sync only: core's apply stays strict); one under a value that is not a map, left out.
 import apply, { type Patch } from "@ermine/op/apply"
-import { type Commit, compare, decode } from "@ermine/encoding/commit"
+import { type Commit, compare, decode } from "@ermine/formats/commit"
 import type { Entry } from "@ermine/node/entry"
 import { agreed, type History, type Kept } from "./history.ts"
 import { changeOf, type Tables } from "./replay.ts"
@@ -36,10 +42,20 @@ export type Write = {
 	gone?: true
 	whole?: true
 	replaces?: Uint8Array[]
+	// a held commit's: the rule it waits for
+	held?: string
 }
 
-// an item of a path: a standing write there, or (at) a shallow one's value at it
-export type Item = { write: Write; value?: unknown; gone?: true; inside?: true; at?: Key[] }
+// an item of a path: a standing write there, or (at) a shallow one's value at it; held: a held
+// commit's write, no value
+export type Item = {
+	write: Write
+	value?: unknown
+	gone?: true
+	inside?: true
+	at?: Key[]
+	held?: string
+}
 
 export type Lists = {
 	// a commit, its parents added already
@@ -48,7 +64,7 @@ export type Lists = {
 	readonly size: number
 	// the items at path, first shown first; none: []
 	items(path: readonly Key[]): Item[]
-	// the standing writes at path and under it, each path's first shown first
+	// the standing writes at path and under it, each path's first shown first; held ones left out
 	standing(path: readonly Key[]): Write[][]
 	// every open path, with its items, shallow first
 	open(): { path: Key[]; items: Item[] }[]
@@ -66,7 +82,11 @@ const isMap = (v: unknown): v is Record<string, unknown> => {
 }
 const prefix = (a: readonly Key[], b: readonly Key[]) =>
 	a.length <= b.length && a.every((k, i) => k === b[i])
-const by = (a: Write, b: Write) => agreed(a.kept, b.kept)
+// the agreed order, held writes after the others
+const by = (a: Write, b: Write) =>
+	(a.held === undefined) !== (b.held === undefined)
+		? a.held === undefined ? -1 : 1
+		: agreed(a.kept, b.kept)
 
 // the value at keys, or undefined
 export function dig(v: unknown, keys: readonly Key[]): unknown {
@@ -101,6 +121,23 @@ function writesOf(kept: Kept, commit: Commit): Write[] {
 		}
 	}
 	return all.filter((w, i) => !all.slice(i + 1).some((l) => prefix(l.path, w.path)))
+}
+
+// the key paths a commit writes: a merge's, its table; else its patches' (a move's both ends)
+export function pathsOf(commit: Commit): Key[][] {
+	if (commit.merge !== undefined) return [[commit.table]]
+	return commit.patches.flatMap((p) => [
+		[commit.table, ...keyed(p.path)],
+		...p.move === undefined ? [] : [[commit.table, ...keyed(p.move.path)]],
+	])
+}
+
+// a held commit's writes: at each of its paths (the shallowest, once), held
+function heldOf(k: Kept, commit: Commit): Write[] {
+	const paths = pathsOf(commit)
+	return paths.filter((p, i) =>
+		!paths.some((q, j) => prefix(q, p) && (q.length < p.length || j < i))
+	).map((path) => ({ kept: k, commit, path, whole: true, held: k.held }))
 }
 
 // patches applied as sync takes them, in place (cow false): a key patch's missing parents made as
@@ -161,7 +198,7 @@ export function createLists(history: History, after: (k: Kept) => Tables): Lists
 	}
 	// what w names, clamped to its own ancestors, covers s: named, or an ancestor of one named
 	function covers(w: Write, s: Write): boolean {
-		if (s.kept === w.kept) return false
+		if (s.kept === w.kept || w.held !== undefined && s.held === undefined) return false
 		if (w.replaces === undefined) return anc(s.kept, w.kept)
 		for (const n of w.replaces) {
 			const x = history.get(n)
@@ -223,6 +260,7 @@ export function createLists(history: History, after: (k: Kept) => Tables): Lists
 		const walk = (n: Node, above: Write[]) => {
 			n.writes.sort(by)
 			for (const d of n.writes) {
+				if (d.held !== undefined) continue
 				for (const c of above) {
 					if (owns(c, d)) continue
 					inside.add(c)
@@ -231,7 +269,8 @@ export function createLists(history: History, after: (k: Kept) => Tables): Lists
 					over.set(n, o)
 				}
 			}
-			const next = n.writes.length ? [...above, ...n.writes] : above
+			const shown = n.writes.filter((w) => w.held === undefined)
+			const next = shown.length ? [...above, ...shown] : above
 			for (const k of n.kids.values()) walk(k, next)
 		}
 		walk(root, [])
@@ -241,7 +280,7 @@ export function createLists(history: History, after: (k: Kept) => Tables): Lists
 
 	function itemsOf(n: Node, path: readonly Key[]): Item[] {
 		const { inside, over } = look()
-		const out: Item[] = n.writes.map((w) => ({
+		const out: Item[] = n.writes.filter((w) => w.held === undefined).map((w) => ({
 			write: w,
 			...valueOf(w),
 			...inside.has(w) && { inside: true as const },
@@ -256,6 +295,7 @@ export function createLists(history: History, after: (k: Kept) => Tables): Lists
 				at: c.path,
 			})
 		}
+		for (const w of n.writes) if (w.held !== undefined) out.push({ write: w, held: w.held })
 		return out
 	}
 
@@ -270,7 +310,11 @@ export function createLists(history: History, after: (k: Kept) => Tables): Lists
 				else forked = true
 			}
 			seen = undefined
-			const ws = commit.merge === undefined ? writesOf(kept, commit) : merged(kept, commit)
+			const ws = kept.held !== undefined
+				? heldOf(kept, commit)
+				: commit.merge === undefined
+				? writesOf(kept, commit)
+				: merged(kept, commit)
 			for (const w of ws) {
 				for (const n of below(reach(w.path, true)!)) {
 					n.writes = n.writes.filter((s) => !covers(w, s))
@@ -282,7 +326,8 @@ export function createLists(history: History, after: (k: Kept) => Tables): Lists
 			const n = reach(path, false)
 			if (n === undefined) return []
 			look()
-			return [...below(n)].filter((m) => m.writes.length).map((m) => m.writes.slice())
+			return [...below(n)].map((m) => m.writes.filter((w) => w.held === undefined))
+				.filter((ws) => ws.length)
 		},
 		get size() {
 			return size
@@ -295,7 +340,10 @@ export function createLists(history: History, after: (k: Kept) => Tables): Lists
 			const { inside, over } = look()
 			const out: { path: Key[]; items: Item[] }[] = []
 			const walk = (n: Node, path: Key[]) => {
-				if (n.writes.length > 1 || n.writes.some((w) => inside.has(w)) || over.has(n)) {
+				if (
+					n.writes.length > 1 || n.writes.some((w) => inside.has(w) || w.held !== undefined) ||
+					over.has(n)
+				) {
 					out.push({ path, items: itemsOf(n, path) })
 				}
 				for (const [k, c] of n.kids) walk(c, [...path, k])
@@ -311,7 +359,9 @@ export function createLists(history: History, after: (k: Kept) => Tables): Lists
 				// shallow to deep; owner: choose's write above, whose unowned writes under it are left out
 				const walk = (n: Node, keys: Key[], owner: Write | undefined) => {
 					const o = owner
-					const ws = o === undefined ? n.writes : n.writes.filter((d) => owns(o, d))
+					const ws = n.writes.filter((d) =>
+						d.held === undefined && (o === undefined || owns(o, d))
+					)
 					const w = ws.find((d) => d.kept === choose) ?? ws[0]
 					if (w !== undefined) {
 						if (last === undefined || by(w, last) < 0) last = w
@@ -376,4 +426,66 @@ export function state(
 	const lists = createLists(history, after)
 	for (const k of history.all()) if (mine.has(k)) lists.add(k)
 	return lists.compose()
+}
+
+// what held commits mark (history.ts, held): each one's paths (pathsOf), carried down to every
+// commit on it, less what a commit that is not held writes at or over (this device's own writes
+// there, which replace it). a commit goes on a held one's path when it is a merge sitting on any
+// mark (its rule's merge reads them all), or writes at, over or under one
+export type Marks = {
+	// a commit whose parents are taken in: whether it goes on a held one's path
+	on(commit: Commit): boolean
+	// a commit the check holds, noted: "held", what the check answers
+	hold(k: Kept): "held"
+}
+
+export function createMarks(history: History): Marks {
+	// each commit's marks, from the lowest lamport held (none under it), as asked
+	const marks = new Map<Kept, Key[][]>()
+	let low = Infinity
+	const meets = (a: readonly Key[], b: readonly Key[]) => prefix(a, b) || prefix(b, a)
+	function of(k: Kept): Key[][] {
+		const todo = [k]
+		while (todo.length) {
+			const x = todo[todo.length - 1]
+			if (x.lamport < low || marks.has(x)) {
+				todo.pop()
+				continue
+			}
+			const up = x.parents.map((p) => history.get(p)).filter((q) => q !== undefined)
+			const next = up.filter((q) => q.lamport >= low && !marks.has(q))
+			if (next.length) {
+				todo.push(...next)
+				continue
+			}
+			todo.pop()
+			const own = pathsOf(decode(x.bytes))
+			const from = up.length === 1
+				? marks.get(up[0]) ?? []
+				: up.flatMap((q) => marks.get(q) ?? [])
+			const left = from.filter((m) => !own.some((p) => prefix(p, m)))
+			marks.set(
+				x,
+				x.held !== undefined ? [...from, ...own] : left.length === from.length ? from : left,
+			)
+		}
+		return marks.get(k) ?? []
+	}
+	return {
+		on(commit) {
+			if (low === Infinity) return false
+			const under = commit.parents.flatMap((p) => {
+				const q = history.get(p)
+				return q === undefined ? [] : of(q)
+			})
+			if (!under.length) return false
+			if (commit.merge !== undefined) return true
+			const own = pathsOf(commit)
+			return under.some((m) => own.some((p) => meets(m, p)))
+		},
+		hold(k) {
+			low = Math.min(low, k.lamport)
+			return "held"
+		},
+	}
 }

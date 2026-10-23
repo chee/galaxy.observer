@@ -1,3 +1,12 @@
+// Ed25519 for ermine, in TS (c/ed25519.h the same in C): a 32-byte secret (an RFC 8032 seed), its
+// 32-byte public key, a 64-byte signature. sign and verify go through WebCrypto (every browser, Deno
+// and Node have it); verify takes only what strict (below) takes, as the C does, so every device
+// takes the same signatures
+//
+//   const key = await publicKeyOf(secret)
+//   const signature = await sign(secret, message)
+//   await verify(key, message, signature)     // true | false, never a throw
+//
 // what an Ed25519 signature must be before the equation is asked, as the C (ed25519.h) has it, so
 // every device takes the same ones: S below the group order L; the key (A) and R each in their one
 // canonical encoding (y below p, and no sign bit when x is 0); neither of small order. WebCrypto
@@ -45,4 +54,59 @@ export function strict(signature: Uint8Array, key: Uint8Array): boolean {
 	if (signature.length !== 64 || key.length !== 32) return false
 	if (number(signature.subarray(32)) >= L) return false
 	return point(key) && point(signature.subarray(0, 32))
+}
+
+// what a seed is wrapped in for WebCrypto to take it (RFC 8410, PKCS#8)
+const PKCS8 = Uint8Array.of(
+	0x30,
+	0x2e,
+	0x02,
+	0x01,
+	0x00,
+	0x30,
+	0x05,
+	0x06,
+	0x03,
+	0x2b,
+	0x65,
+	0x70,
+	0x04,
+	0x22,
+	0x04,
+	0x20,
+)
+
+const imported = (secret: Uint8Array, extractable: boolean) => {
+	if (secret.length !== 32) throw new TypeError("an Ed25519 secret is 32 bytes")
+	const der = new Uint8Array([...PKCS8, ...secret])
+	return crypto.subtle.importKey("pkcs8", der, { name: "Ed25519" }, extractable, ["sign"])
+}
+
+// a secret's public key, read from its JWK
+export async function publicKeyOf(secret: Uint8Array): Promise<Uint8Array> {
+	const x = (await crypto.subtle.exportKey("jwk", await imported(secret, true))).x!
+	const b64 = x.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(x.length / 4) * 4, "=")
+	return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+}
+
+export async function sign(secret: Uint8Array, message: Uint8Array): Promise<Uint8Array> {
+	const k = await imported(secret, false)
+	return new Uint8Array(await crypto.subtle.sign("Ed25519", k, message.slice()))
+}
+
+// whether signature is key's over message: strict first, then the equation
+export async function verify(
+	key: Uint8Array,
+	message: Uint8Array,
+	signature: Uint8Array,
+): Promise<boolean> {
+	if (!strict(signature, key)) return false
+	try {
+		const k = await crypto.subtle.importKey("raw", key.slice(), { name: "Ed25519" }, false, [
+			"verify",
+		])
+		return await crypto.subtle.verify("Ed25519", k, signature.slice(), message.slice())
+	} catch {
+		return false
+	}
 }

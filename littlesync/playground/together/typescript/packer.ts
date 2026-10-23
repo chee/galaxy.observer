@@ -28,7 +28,8 @@
 //
 // refused (PackError code, column), the first that fails:
 //   not-a-pack    not CBOR, not a map, or an unknown key
-//   count        n not a whole number
+//   count        n not a whole number, or more than the pack has bytes (each commit takes a byte of
+//                time at least): nothing is made for n before it is checked
 //   signatures   not a list of byte strings, one per commit with a header
 //   runs         a runs column not [value, how many ≥ 1] summing to n; headers not bytes; an id
 //                not a string where there is a header, or not null where there is none
@@ -44,7 +45,7 @@
 // order: the first five, then per commit: parents, patches, base, commit, vouched, size. commits
 // are given one at a time, so a reader can check each signature and stop.
 import * as cbor from "@ermine/encoding/cbor"
-import { type Commit, decode, encode, name as nameOf, type Patch } from "@ermine/encoding/commit"
+import { type Commit, decode, encode, name as nameOf, type Patch } from "@ermine/formats/commit"
 import { hex } from "./hex.ts"
 import { headerLength, stored } from "./seal.ts"
 
@@ -337,7 +338,9 @@ export function* each(bytes: Uint8Array): Generator<Unpacked, void, undefined> {
 	const stray = Object.keys(o).filter((k) => !COLUMNS.has(k)).sort(canonical)
 	if (stray.length) throw new PackError("not-a-pack", stray[0])
 	const n = o.n
-	if (!Number.isSafeInteger(n) || (n as number) < 0) throw new PackError("count")
+	if (!Number.isSafeInteger(n) || (n as number) < 0 || (n as number) > bytes.length) {
+		throw new PackError("count")
+	}
 	const count = n as number
 	const signatures = o.signatures, ids = o.ids
 	if (!Array.isArray(signatures) || !signatures.every((x) => x instanceof Uint8Array)) {

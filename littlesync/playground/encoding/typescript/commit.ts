@@ -4,7 +4,7 @@
 // object per name), there is no node id (a commit is kept in its node's sedimentree), and the
 // change header goes as the graph has it (time, actor, reader, external, metadata; never op)
 import { blake3 } from "@ermine/blake3"
-import * as cbor from "./cbor.ts"
+import * as cbor from "@ermine/encoding/cbor"
 import type { FileLocation } from "@ermine/util/stacktrace"
 import type { Metadata } from "@ermine/node/entry"
 

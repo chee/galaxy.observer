@@ -33,16 +33,18 @@ export type { Fragment } from "../stacks/subduction/typescript/subduction.ts"
 
 // starting: createDevice returns at once, and begins taking in what the storage holds for each
 // document whose id is named already (every fragment, then every loose commit, as a save is taken
-// in; a commit whose parents come later waits, as ever). a tree whose id is not named yet (a tree id
-// is a hash of the id: it can't be turned back) is only listed (unnamed() counts them), and taken
-// in when its document is first followed (fragments, then loose commits, as the start would),
-// before it is fetched from any peer; a save or an arrival for a tree with no id named is stored as
-// it came, unchecked (its envelopes can't be opened without the id), and taken in on follow.
+// in; a commit whose parents come later waits, as ever; another device's only once the document is
+// followed). a tree whose id is not named yet (a tree id is a hash of the id: it can't be turned
+// back) is only listed (unnamed() counts them), and taken in when its document is first followed
+// (fragments, then loose commits, as the start would), before it is fetched from any peer.
 // everything that touches the network (connect, connectDiscover, follow) waits for the start;
 // take's sealing and storing, put and the other work queue behind it. ready() resolves when it is
-// done; it throws what the storage threw. lazy: every tree only listed at the start, so the
-// histories hold the followed documents and no other; a stored document never followed enters no
-// history
+// done; it throws what the storage threw. lazy: every tree only listed at the start (but first's),
+// so the histories hold the followed documents and no other; a stored document never followed
+// enters no history. not shared means not stored: this device stores its own commits, followed or
+// not, and another's only for a followed document; a peer's put or fetch for one not followed is
+// turned away, counted (turned, offered). what this device stores of a document is sent only while
+// it is followed (pause, drop: Wired's)
 export type Device = Held & Wired
 
 // what a device holds for others at most, each letting go of its oldest past it (heard again, it
@@ -73,6 +75,8 @@ export function createDevice(
 		merges?: Merges
 		// default LIMITS
 		limits?: Partial<Limits>
+		// ids named before the start: their trees taken in at it, lazy or not (sync's shared list)
+		first?: readonly string[]
 	},
 ): Device {
 	const limits: Limits = { ...LIMITS, ...options.limits }

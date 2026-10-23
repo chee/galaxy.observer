@@ -8,9 +8,10 @@
 // the walk starts there. a rule is given only what is had without merging (a snapshot, or a walk
 // back to one or the root that meets no merge commit), so a merge never waits on another. key
 // patches on several parents, or a commit naming what it replaces: its tables are the lists' of it
-// and its ancestors (lists.ts); the walk starts there too. patches apply as sync takes them
-// (lists.ts applies: a key patch makes its missing parents)
-import { type Commit, decode } from "@ermine/encoding/commit"
+// and its ancestors (lists.ts); the walk starts there too. a held commit (history.ts) the same: the
+// lists show it beside what they show, so its tables are what its parents' are, composed. patches
+// apply as sync takes them (lists.ts applies: a key patch makes its missing parents)
+import { type Commit, decode } from "@ermine/formats/commit"
 import type { ChangeHeader, Entry } from "@ermine/node/entry"
 import type { History, Kept } from "./history.ts"
 import { hex } from "./hex.ts"
@@ -103,8 +104,10 @@ export function written(
 	return walk(history, name, snapshot, merges ?? {}, true, true)
 }
 
-// key patches on several parents, or a commit naming what it replaces: its tables are the lists'
+// key patches on several parents, a commit naming what it replaces, or a held one: its tables are
+// the lists'
 const listed = (k: Kept) =>
+	k.held !== undefined ||
 	k.merge === undefined && (k.replaces || k.base === undefined && k.parents.length > 1)
 
 // merging: a merge commit met is merged; else the walk gives undefined. own: the commit's own
@@ -122,7 +125,7 @@ function walk(
 	const line: Kept[] = []
 	let tables: Tables = {}
 	for (let k: Kept | undefined = start; k !== undefined;) {
-		const s = own && k === start ? undefined : snapshot(k.name)
+		const s = own && k === start || k.held !== undefined ? undefined : snapshot(k.name)
 		if (s !== undefined) {
 			tables = s
 			break
