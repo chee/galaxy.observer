@@ -76,11 +76,12 @@ server=$!
 
 # The gateway's process is the front (littlesync/front.ts): it takes what the server passes for
 # /littlesync on LITTLESYNC_PORT, answers /littlesync/tippet/<room> itself (the tippet galaxy, its
-# rooms' logs under $DATA_DIR/tippet), and hands the rest to the gateway on GATEWAY_PORT.
+# rooms' logs under $DATA_DIR/tippet-runs: packed runs, a fresh folder since 10-23; the old
+# $DATA_DIR/tippet is not read), and hands the rest to the gateway on GATEWAY_PORT.
 GATEWAY_PORT="${GATEWAY_PORT:-8082}"
 FRONT_PORT="$LITTLESYNC_PORT" \
 	PORT="$GATEWAY_PORT" \
-	TIPPET_DIR="$DATA_DIR/tippet" \
+	TIPPET_DIR="$DATA_DIR/tippet-runs" \
 	UPSTREAM="ws://127.0.0.1:$SERVER_PORT" \
 	UPSTREAM_SERVICE="${SERVICE_NAME:-galaxy.observer}" \
 	GATEWAY_SEED="$GATEWAY_SEED" \

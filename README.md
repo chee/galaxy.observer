@@ -124,7 +124,7 @@ gateway's process, behind `littlesync/front.ts`. The front takes what the
 server passes for `/littlesync` and answers `/littlesync/tippet/<room>` itself:
 a websocket there, or HTTP long-poll at `.../send` and `.../recv`. It hands
 everything else to the gateway, which now listens on `GATEWAY_PORT` (default
-8082). Each room's log is kept under `$DATA_DIR/tippet`. Copy it again with:
+8082). Each room's log is kept under `$DATA_DIR/tippet-runs` (packed runs; the older `$DATA_DIR/tippet` is no longer read). Copy it again with:
 
 ```sh
 sh littlesync/vendor-tippet.sh ../ermine   # after vendor.sh, if both

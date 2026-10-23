@@ -20,17 +20,20 @@ export type Link = {
 	many?: boolean
 	// kept once it can take more: a run goes only after it
 	wait?(): Promise<void>
+	// forgetting (history.ts): the other side keeps every run it is sent (galaxy), as the host knows
+	keeper?: boolean
 }
 
 // theirs: how many of each device's steps it has, or has been sent; pushing: by device, the push
 // going on, and whether it was asked again while it ran; refused: devices it refused; turn: its
-// runs, one after another
+// runs, one after another; said: how many of this device's own its last have said it holds
 type Linked = {
 	link: Link
 	theirs: Map<string, number>
 	pushing: Map<string, boolean>
 	refused: Set<string>
 	turn: Promise<void>
+	said?: number
 }
 // refused: n, how many of the device's steps the refusing side holds. devices hex, as the log has
 // them; a live id hex
@@ -117,7 +120,8 @@ export function createSync(o: { log: Log; relay?: boolean }) {
 		if (!b) return false
 		// they said what they have meanwhile: this run may not be what they lack
 		if (!links.has(l) || (l.theirs.get(device) ?? 0) !== from - 1) return true
-		say(l, { t: "run", device, sig: b.sig, pack: pack(b.steps) })
+		// as the log keeps it, when it is all of it
+		send(l, b.message ?? wire({ t: "run", device, sig: b.sig, pack: pack(b.steps) }))
 		l.theirs.set(device, from + b.steps.length - 1)
 		return true
 	}
@@ -154,6 +158,7 @@ export function createSync(o: { log: Log; relay?: boolean }) {
 				return push(l, me)
 			}
 			l.theirs = new Map(Object.entries(m.have))
+			l.said = me === undefined ? 0 : m.have[me] ?? 0
 			for (const [d, n] of Object.entries(log.have())) if ((m.have[d] ?? 0) < n) push(l, d)
 		} else if (m.t === "run") {
 			// last: the n of the run's last step, which they hold
@@ -161,7 +166,7 @@ export function createSync(o: { log: Log; relay?: boolean }) {
 			try {
 				const steps = unpack(m.pack)
 				last = decodeStep(steps[0]).n + steps.length - 1
-				r = await log.take({ device: m.device, steps, sig: m.sig }, l)
+				r = await log.take({ device: m.device, steps, sig: m.sig, message: bytes }, l)
 			} catch {
 				r = { refused: "pack" }
 			}
@@ -226,6 +231,23 @@ export function createSync(o: { log: Log; relay?: boolean }) {
 		onLive(f: (data: Uint8Array) => void) {
 			lives.push(f)
 			return () => void lives.splice(lives.indexOf(f), 1)
+		},
+		// forgetting (history.ts): per device, how many of its steps have passed on. another's: as
+		// many as every link has, or has been sent (a broadcast is sent only this device's own; one
+		// that refused them is sent no more); none without a link. this device's own: as many as a
+		// link to a keeper last said it holds, so they are never let go before a keeper has them
+		passed(): Record<string, number> {
+			const out: Record<string, number> = {}
+			const all = [...links]
+			for (const d of Object.keys(log.have())) {
+				if (d === log.device) {
+					out[d] = Math.max(0, ...all.map((l) => l.link.keeper ? l.said ?? 0 : 0))
+				} else {
+					const to = all.filter((l) => !l.link.many && !l.refused.has(d))
+					out[d] = to.length ? Math.min(...to.map((l) => l.theirs.get(d) ?? 0)) : 0
+				}
+			}
+			return out
 		},
 	}
 }
