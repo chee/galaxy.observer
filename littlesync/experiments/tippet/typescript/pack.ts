@@ -6,9 +6,23 @@
 //   const packed = pack(steps, priorOf(stepBefore)); const steps = unpack(packed, prior)
 import type { Value } from "@ermine/encoding/cbor"
 import { type Columns, decode as patchesOf, encode as columns } from "@ermine/op/squish"
-import { decodeStep, encodeStep, hashStep, own, type Step, written } from "./step.ts"
+import { encode } from "@ermine/encoding/cbor"
+import {
+	decodeStep,
+	encodeStep,
+	hashStep,
+	hex,
+	onOf,
+	own,
+	readOn,
+	type Step,
+	unhex,
+	written,
+	writtenOn,
+} from "./step.ts"
 
-// first: the first step whole, or its n, worked out from step n - 1 like the rest
+// first: the first step whole, or its n, worked out from step n - 1 like the rest. on: only when a
+// step after the first says what it was written on
 export type Packed = [
 	first: Uint8Array | number,
 	lamport: number[],
@@ -18,12 +32,16 @@ export type Packed = [
 	who: Value[],
 	count: number[],
 	columns: Columns,
+	on?: Value[],
 ]
 
-// the same value: a node relative ([rest]) by its rest
+// the same value: a node relative ([rest]) by its rest; an on by its items
 const alike = (a: unknown, b: unknown) =>
 	a === b ||
-	(Array.isArray(a) && Array.isArray(b) && a.length === 1 && b.length === 1 && a[0] === b[0])
+	(Array.isArray(a) && Array.isArray(b) && a.length === 1 && b.length === 1 && a[0] === b[0]) ||
+	(Array.isArray(a) && Array.isArray(b) && same(encode(a as Value), encode(b as Value)))
+const same = (a: Uint8Array, b: Uint8Array) =>
+	a.length === b.length && a.every((x, i) => x === b[i])
 
 // a list as runs, [value, count, …], and back
 function runs<T>(xs: T[]): T[] {
@@ -107,7 +125,7 @@ export function pack(bytes: readonly Uint8Array[], prior?: Prior): Packed {
 	}
 	const before: Pick<Step, "lamport" | "when">[] = prior ? [prior, ...steps] : steps
 	const rest = prior ? steps : steps.slice(1)
-	return [
+	const p: Packed = [
 		prior ? s0.n : bytes[0],
 		runs(rest.map((s, i) => s.lamport - before[i].lamport)),
 		runs(rest.map((s, i) => s.when - before[i].when)),
@@ -117,20 +135,35 @@ export function pack(bytes: readonly Uint8Array[], prior?: Prior): Packed {
 		runs(rest.map((s) => s.patches.length)),
 		columns(rest.flatMap((s) => s.patches)),
 	]
+	if (rest.some((s) => s.on)) {
+		// another device's n from the last this column gave it (0 at first): typing by turns is runs
+		const last = new Map<string, number>()
+		p.push(runs(rest.map((s) =>
+			s.on
+				? (writtenOn(s) as Value[]).map((o) => {
+					if (typeof o === "number") return o
+					const [d, n] = o as [Uint8Array, number], k = hex(d), was = last.get(k) ?? 0
+					return last.set(k, n), [d, n - was]
+				})
+				: null
+		)))
+	}
+	return p
 }
 
 // a pack's steps; a pack that isn't one throws before anything is made of it: eight elements, at
 // most STEPS steps in the columns and PATCHES patches, every column as long as the rest. one packed
 // against step n - 1 is made from prior, which must be that step's; without it, it throws
 export function unpack(p: unknown, prior?: Prior): Uint8Array[] {
-	if (!Array.isArray(p) || p.length !== 8) throw new TypeError("not a pack")
+	if (!Array.isArray(p) || (p.length !== 8 && p.length !== 9)) throw new TypeError("not a pack")
 	const [first, lamports, whens, nodes, parts, whos, counts, cols] = p as Packed
+	const ons = p.length === 9 ? (p as Packed)[8]! : runs(Array(length(lamports)).fill(null))
 	const steps = length(lamports), patches = patchCount(cols)
 	const against = typeof first === "number"
 	const ok = steps >= 0 && steps < STEPS && patches >= 0 &&
 		(first instanceof Uint8Array ||
 			(Number.isSafeInteger(first) && (first as number) >= 2 && steps >= 1)) &&
-		[whens, nodes, parts, whos, counts].every((c) => length(c) === steps) &&
+		[whens, nodes, parts, whos, counts, ons].every((c) => length(c) === steps) &&
 		sum(counts) === patches
 	if (!ok) throw new TypeError("not a pack")
 	if (against && prior?.n !== (first as number) - 1) {
@@ -146,7 +179,8 @@ export function unpack(p: unknown, prior?: Prior): Uint8Array[] {
 		node = unruns(nodes),
 		part = unruns(parts),
 		who = unruns(whos),
-		count = unruns(counts)
+		count = unruns(counts),
+		on = unruns(ons)
 	const all = patchesOf(cols)
 	// a node: its id, or [the rest after the device's]
 	if (
@@ -156,6 +190,8 @@ export function unpack(p: unknown, prior?: Prior): Uint8Array[] {
 	) {
 		throw new TypeError("not a pack")
 	}
+	if (!on.every((x) => x === null || Array.isArray(x))) throw new TypeError("not a pack")
+	const device = unhex(prev.device), last = new Map<string, number>()
 	for (let i = 0; i < count.length; i++) {
 		const s: Step = {
 			device: prev.device,
@@ -169,6 +205,17 @@ export function unpack(p: unknown, prior?: Prior): Uint8Array[] {
 			lamport: prev.lamport + lamport[i],
 			when: prev.when + when[i],
 			...(who[i] !== null && { who: who[i] as string }),
+		}
+		// on as written (another's n from the last the column gave it), each of its kind
+		// (decodeStep's rule), read back whole
+		if (on[i] !== null) {
+			const written = (on[i] as unknown[]).map((o) => {
+				if (!Array.isArray(o) || o.length !== 2 || !(o[0] instanceof Uint8Array)) return o
+				const k = hex(o[0]), n = (last.get(k) ?? 0) + (o[1] as number)
+				return last.set(k, n), [o[0], n]
+			})
+			if (!written.every(onOf(device, prev.n + 1))) throw new TypeError("not a pack")
+			s.on = readOn(prev.device, prev.n + 1, written)
 		}
 		const b = encodeStep(s)
 		out.push(b)

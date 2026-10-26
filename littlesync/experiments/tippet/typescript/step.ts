@@ -1,7 +1,7 @@
 // a step: one kept write, as it travels (WIRE.md, step). a step is its bytes: encodeStep makes
 // them once, decodeStep reads them back and throws on anything that isn't one, hashStep names them
 //
-//   const bytes = encodeStep({ device, n: 1, before: null, node, part, patches, lamport, when })
+//   const bytes = encodeStep({ device, n: 1, before: null, node, part, patches, lamport, when, on: [] })
 //   const step = decodeStep(bytes)
 import { decode, encode, type Value } from "@ermine/encoding/cbor"
 import { blake3 } from "@ermine/blake3"
@@ -26,7 +26,14 @@ export type Step = {
 	when: number
 	// who, as the writer's change header said, when it was a string
 	who?: string
+	// what it was written on: its entry's heads at the writer (history.ts), each a step by its
+	// device and n. none: an old step, from before steps said (read as on every step of its entry
+	// before it, in order)
+	on?: readonly On[]
 }
+
+// a step another names: its device (hex) and n
+export type On = { device: string; n: number }
 
 const KEY = /^[0-9a-f]{64}$/
 
@@ -47,10 +54,23 @@ export function written(s: Step): Value {
 	return [r]
 }
 
+// on as written: this device's own steps as how far back (n - theirs), another's as [device, n]
+export function writtenOn(s: Step): Value {
+	return s.on!.map((o) => o.device === s.device ? s.n - o.n : [unhex(o.device), o.n])
+}
+// on as read back: each step whole
+export const readOn = (device: string, n: number, on: unknown[]): On[] =>
+	on.map((o) =>
+		typeof o === "number"
+			? { device, n: n - o }
+			: { device: hex((o as [Uint8Array])[0]), n: (o as [Uint8Array, number])[1] }
+	)
+
 // a step's bytes; a device that isn't a key, or a node relative that isn't under it, throws
 export function encodeStep(s: Step): Uint8Array {
 	if (!KEY.test(s.device)) throw new TypeError("not a device")
 	const a = [unhex(s.device), s.n, s.before, written(s), s.part, s.patches, s.lamport, s.when]
+	if (s.on !== undefined) a.push(writtenOn(s))
 	if (s.who !== undefined) a.push(s.who)
 	return encode(a as Value)
 }
@@ -74,18 +94,28 @@ const relative = (x: unknown): x is [string] =>
 	Array.isArray(x) && x.length === 1 && typeof x[0] === "string" &&
 	(x[0] === "" || x[0][0] === "/")
 
-// a step, only as tippet writes one: eight elements, or nine with who, each of its kind, every
-// number whole, so it packs and unpacks to the same bytes. anything else throws
+// one of on's: this device's step n - k (k from 1, n - k from 1), or another device's [device, n]
+export const onOf = (device: Uint8Array, n: number) => (o: unknown) =>
+	whole(o) ? o >= 1 && o < n : Array.isArray(o) && o.length === 2 && key(o[0]) && whole(o[1]) &&
+		o[1] >= 1 && !same(o[0], device)
+
+// a step, only as tippet writes one: eight elements, then on (an array) when it says, then who (a
+// string) when there is one, each of its kind, every number whole, so it packs and unpacks to the
+// same bytes. anything else throws
 export function decodeStep(bytes: Uint8Array): Step {
 	const a = decode(bytes)
+	if (!Array.isArray(a) || a.length < 8 || a.length > 10) throw new TypeError("not a step")
+	const said = Array.isArray(a[8]), at = said ? 9 : 8
 	if (
-		!Array.isArray(a) || !(a.length === 8 || (a.length === 9 && typeof a[8] === "string")) ||
+		!(a.length === at || (a.length === at + 1 && typeof a[at] === "string")) ||
 		!key(a[0]) || !whole(a[1]) || a[1] < 1 || !(a[2] === null || key(a[2])) ||
 		!(typeof a[3] === "string" || relative(a[3])) || typeof a[4] !== "string" ||
 		!Array.isArray(a[5]) ||
-		!a[5].every(patch) || !whole(a[6]) || !whole(a[7])
+		!a[5].every(patch) || !whole(a[6]) || !whole(a[7]) ||
+		(said && !(a[8] as unknown[]).every(onOf(a[0], a[1])))
 	) throw new TypeError("not a step")
-	const [device, n, before, node, part, patches, lamport, when, who] = a
+	const [device, n, before, node, part, patches, lamport, when] = a
+	const who = a[at] as string | undefined
 	const d = hex(device)
 	const s: Step = typeof node === "string"
 		? { device: d, n, before, node, part, patches, lamport, when }
@@ -100,6 +130,7 @@ export function decodeStep(bytes: Uint8Array): Step {
 			lamport,
 			when,
 		}
+	if (said) s.on = readOn(d, n, a[8] as unknown[])
 	if (who !== undefined) s.who = who
 	return s
 }
